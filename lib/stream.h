@@ -16,6 +16,7 @@ typedef struct stream stream;
 struct stream {
     stream_type type;
 
+    usz pos;
     usz col;
     usz lastCol;
     usz row;
@@ -56,6 +57,7 @@ MaybeChar stream_popChar(stream *s) {
         if(s->i >= s->s.len) return none(MaybeChar);
         char c = s->s.s[s->i++];
         if(!s->preservePos) { 
+            s->pos++;
             if(c == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
             else          { s->col++; }
         }
@@ -85,6 +87,7 @@ MaybeRune stream_popRune(stream *s) {
         if(r.error && r.errmsg == RUNE_UNFINISHED) continue;
         else if(r.error && r.errmsg == RUNE_INVALID) break;
 
+        s->pos++;
         if(r.value == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
         else                { s->col++; }
         s->preservePos = false;

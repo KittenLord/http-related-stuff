@@ -3,6 +3,7 @@
 
 // TODO: remove this
 #include <string.h>
+#include "alloc.h"
 #include "types.h"
 
 // TODO: maybe rename to "String"?
