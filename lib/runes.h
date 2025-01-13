@@ -2,6 +2,7 @@
 #define __LIB_RUNES
 
 #include "types.h"
+#include "macros.h"
 
 #define RUNE_OKAY 0
 #define RUNE_INVALID 1
@@ -9,11 +10,8 @@
 typedef struct {
     rune value;
     bool error;
-    u8 msg;
+    u8 errmsg;
 } MaybeRune;
-
-#define justr(_r) ((MaybeRune){ .value = (_r), .error = false, .msg = RUNE_OKAY })
-#define noner(m) ((MaybeRune){ .error = true, .msg = m })
 
 #define rune1(c0) (c0) 
 #define rune2(c0, c1) ((c1) << 8 | (c0))
@@ -52,30 +50,30 @@ bool runeUtf4(char c0, char c1, char c2, char c3, u8 cap) {
 MaybeRune getRune(char *data, usz len) {
     if(len == 1) {
         char c0 = *data;
-        if(runeUtf1(c0)) return justr(rune1(c0));
+        if(runeUtf1(c0)) return just(MaybeRune, rune1(c0));
         else if(runeUtf2(c0, 0, 1) ||
                 runeUtf3(c0, 0, 0, 1) ||
-                runeUtf4(c0, 0, 0, 0, 1)) return noner(RUNE_UNFINISHED);
-        return noner(RUNE_INVALID);
+                runeUtf4(c0, 0, 0, 0, 1)) return fail(MaybeRune, RUNE_UNFINISHED);
+        return fail(MaybeRune, RUNE_INVALID);
     }
     else if(len == 2) {
         char c0 = *data;
         char c1 = *(data + 1);
-        if(runeUtf2(c0, c1, 2)) return justr(rune2(c0, c1));
+        if(runeUtf2(c0, c1, 2)) return just(MaybeRune, rune2(c0, c1));
         else if(runeUtf3(c0, c1, 0, 2) ||
-                runeUtf4(c0, c1, 0, 0, 2)) return noner(RUNE_UNFINISHED);
-        return noner(RUNE_INVALID);
+                runeUtf4(c0, c1, 0, 0, 2)) return fail(MaybeRune, RUNE_UNFINISHED);
+        return fail(MaybeRune, RUNE_INVALID);
     }
     else if(len == 3) {
         char c0 = *data;
         char c1 = *(data + 1);
         char c2 = *(data + 2);
-        if(runeUtf3(c0, c1, c2, 3)) return justr(rune3(c0, c1, c2));
-        else if(runeUtf4(c0, c1, c2, 0, 3)) return noner(RUNE_UNFINISHED);
-        return noner(RUNE_INVALID);
+        if(runeUtf3(c0, c1, c2, 3)) return just(MaybeRune, rune3(c0, c1, c2));
+        else if(runeUtf4(c0, c1, c2, 0, 3)) return fail(MaybeRune, RUNE_UNFINISHED);
+        return fail(MaybeRune, RUNE_INVALID);
     }
 
-    return noner(RUNE_INVALID);
+    return fail(MaybeRune, RUNE_INVALID);
 }
 
 #endif // __LIB_RUNES

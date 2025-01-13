@@ -6,12 +6,9 @@
 #include "json.c"
 
 int main() {
-    Allocate(u8, myVar, 5);
-    // Free(myVar);
-
     PeekStream s = mkPeekStream(mkStreamStr(mstr0("    a")));
     JSON_parseValue(&s);
 
-    printf("%d\n", *myVar);
+    printf("Hello!\n");
     return 0;
 }

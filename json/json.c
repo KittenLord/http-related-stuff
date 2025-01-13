@@ -6,6 +6,8 @@ typedef struct JsonValue JsonValue;
 
 typedef struct JsonKeyValue JsonKeyValue;
 struct JsonKeyValue {
+    bool error;
+
     str key;
     JsonValue *value;
 
@@ -14,16 +16,19 @@ struct JsonKeyValue {
 
 typedef struct JsonArrayElement JsonArrayElement;
 struct JsonArrayElement {
+    bool error;
     JsonValue *value;
 
     JsonArrayElement *next;
 };
 
 typedef struct {
+    bool error;
     JsonKeyValue *items;
 } JsonObject;
 
 typedef struct {
+    bool error;
     JsonArrayElement *items;
 } JsonArray;
 
@@ -35,6 +40,8 @@ typedef u8 JsonValueType;
 #define JSON_ARRAY 4
 #define JSON_BOOL 5
 struct JsonValue {
+    bool error;
+
     JsonValueType type;
     union {
         str string;
@@ -56,7 +63,7 @@ JsonValue JSON_parseValue(PeekStream *s) {
         pstream_pop(s);
     }
 
-    if(r.error) { return 0; }
+    if(r.error) { return none(JsonValue); }
 
     if(r.value == '\"') {
 
