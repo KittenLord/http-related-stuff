@@ -67,6 +67,17 @@ MaybeChar stream_popChar(Stream *s) {
     }
 }
 
+bool stream_writeChar(Stream *s, char c) {
+    if(s->type == STREAM_STR) {
+        if(s->i >= s->s.len) return false;
+        s->s.s[s->i++] = c;
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
 void stream_goBackOnePos(Stream *s) {
     if(s->col > 0) { s->col--; }
     else { s->row--; s->col = s->lastCol; }

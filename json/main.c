@@ -6,9 +6,12 @@
 #include "json.c"
 
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mstr0("    a")));
-    JSON_parseValue(&s);
 
-    printf("Hello!\n");
+    PeekStream s = mkPeekStream(mkStreamStr(mkString("\"hello\"")));
+    JsonValue value = JSON_parseValue(&s);
+
+    printf("%d\n", value.type);
+    printf("%s\n", value.string.s);
+
     return 0;
 }
