@@ -1,6 +1,7 @@
 #ifndef __LIB_STR
 #define __LIB_STR
 
+// TODO: remove this
 #include <string.h>
 #include "types.h"
 

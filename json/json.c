@@ -46,19 +46,19 @@ struct JsonValue {
     };
 };
 
-bool JSON_isWhitespace(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+bool JSON_isWhitespace(rune r) {
+    return r == ' ' || r == '\t' || r == '\n' || r == '\r';
 }
 
 JsonValue JSON_parseValue(PeekStream *s) {
-    MaybeChar c;
-    while(!(c = pstream_peek(s)).error && JSON_isWhitespace(c.value)) { 
+    MaybeRune r;
+    while(!(r = pstream_peekRune(s)).error && JSON_isWhitespace(r.value)) { 
         pstream_pop(s);
     }
 
-    if(c.error) { return 0; }
+    if(r.error) { return 0; }
 
-    if(c == '\"') {
+    if(r.value == '\"') {
 
     }
 }

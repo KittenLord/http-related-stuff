@@ -1,6 +1,7 @@
 #ifndef __LIB_TYPES
 #define __LIB_TYPES
 
+// TODO: remove this
 #include <stdint.h>
 
 typedef  int8_t i8;

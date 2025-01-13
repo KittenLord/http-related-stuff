@@ -1,0 +1,81 @@
+#ifndef __LIB_RUNES
+#define __LIB_RUNES
+
+#include "types.h"
+
+#define RUNE_OKAY 0
+#define RUNE_INVALID 1
+#define RUNE_UNFINISHED 2
+typedef struct {
+    rune value;
+    bool error;
+    u8 msg;
+} MaybeRune;
+
+#define justr(_r) ((MaybeRune){ .value = (_r), .error = false, .msg = RUNE_OKAY })
+#define noner(m) ((MaybeRune){ .error = true, .msg = m })
+
+#define rune1(c0) (c0) 
+#define rune2(c0, c1) ((c1) << 8 | (c0))
+#define rune3(c0, c1, c2) ((c2) << 16 | (c1) << 8 | (c0))
+#define rune4(c0, c1, c2, c3) ((c3) << 24 | (c2) << 16 | (c1) << 8 | (c0))
+
+bool runeUtfTail(char c) {
+    return c >= 0x80 && c <= 0xBF;
+}
+
+bool runeUtf1(char c0) {
+    return
+    (c0 >= 0x00 && c0 <= 0x7F);
+}
+
+bool runeUtf2(char c0, char c1, u8 cap) {
+    return
+    (c0 >= 0xC2 && c0 <= 0xDF) && (runeUtfTail(c1) || cap <= 1);
+}
+
+bool runeUtf3(char c0, char c1, char c2, u8 cap) {
+    return
+    (c0 == 0xE0) && ((c1 >= 0xA0 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
+    (c0 >= 0xE1 && c0 <= 0xEC) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
+    (c0 == 0xED) && ((c1 >= 0x80 && c1 <= 0x9F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
+    (c0 >= 0xEE && c0 <= 0xEF) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2);
+}
+
+bool runeUtf4(char c0, char c1, char c2, char c3, u8 cap) {
+    return
+    (c0 == 0xF0) && ((c1 >= 0x90 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3) ||
+    (c0 >= 0xF1 && c0 <= 0xF3) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3) ||
+    (c0 == 0xF4) && ((c1 >= 0x80 && c1 <= 0x8F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3);
+}
+
+MaybeRune getRune(char *data, usz len) {
+    if(len == 1) {
+        char c0 = *data;
+        if(runeUtf1(c0)) return justr(rune1(c0));
+        else if(runeUtf2(c0, 0, 1) ||
+                runeUtf3(c0, 0, 0, 1) ||
+                runeUtf4(c0, 0, 0, 0, 1)) return noner(RUNE_UNFINISHED);
+        return noner(RUNE_INVALID);
+    }
+    else if(len == 2) {
+        char c0 = *data;
+        char c1 = *(data + 1);
+        if(runeUtf2(c0, c1, 2)) return justr(rune2(c0, c1));
+        else if(runeUtf3(c0, c1, 0, 2) ||
+                runeUtf4(c0, c1, 0, 0, 2)) return noner(RUNE_UNFINISHED);
+        return noner(RUNE_INVALID);
+    }
+    else if(len == 3) {
+        char c0 = *data;
+        char c1 = *(data + 1);
+        char c2 = *(data + 2);
+        if(runeUtf3(c0, c1, c2, 3)) return justr(rune3(c0, c1, c2));
+        else if(runeUtf4(c0, c1, c2, 0, 3)) return noner(RUNE_UNFINISHED);
+        return noner(RUNE_INVALID);
+    }
+
+    return noner(RUNE_INVALID);
+}
+
+#endif // __LIB_RUNES
