@@ -8,7 +8,7 @@ typedef struct JsonKeyValue JsonKeyValue;
 struct JsonKeyValue {
     bool error;
 
-    str key;
+    String key;
     JsonValue *value;
 
     JsonKeyValue *next;
@@ -44,7 +44,7 @@ struct JsonValue {
 
     JsonValueType type;
     union {
-        str string;
+        String string;
         i64 number;
         f64 fnumber;
         JsonObject object;

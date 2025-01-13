@@ -6,11 +6,10 @@
 #include "alloc.h"
 #include "types.h"
 
-// TODO: maybe rename to "String"?
 typedef struct {
     byte *s;
     usz len;
-} str;
+} String;
 
 typedef struct {
     byte *s;
@@ -20,7 +19,7 @@ typedef struct {
     Alloc *alloc;
 } StringBuilder;
 
-#define mstr(_s, _len) ((str){ .s = _s, .len = _len })
-#define mstr0(_s) ((str){ .s = _s, .len = strlen(_s) })
+#define mstr(_s, _len) ((String){ .s = _s, .len = _len })
+#define mstr0(_s) ((String){ .s = _s, .len = strlen(_s) })
 
 #endif // __LIB_STR

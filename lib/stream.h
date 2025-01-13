@@ -6,15 +6,14 @@
 #include "runes.h"
 #include "macros.h"
 
-// TODO: holy fuck I need to figure out which naming convention to use, this is atrocious
-typedef u8 stream_type;
+typedef u8 StreamType;
 #define STREAM_INVALID 0
 #define STREAM_STR 1
 #define STREAM_FD 2
 #define STREAM_FILE 3
-typedef struct stream stream;
-struct stream {
-    stream_type type;
+typedef struct Stream Stream;
+struct Stream {
+    StreamType type;
 
     usz pos;
     usz col;
@@ -24,7 +23,7 @@ struct stream {
 
     union {
         struct {
-            str s;
+            String s;
             usz i;
         };
 
@@ -34,7 +33,7 @@ struct stream {
     };
 };
 
-#define mkStreamStr(str) ((stream){ .type = STREAM_STR, .s = (str), .i = 0 })
+#define mkStreamStr(str) ((Stream){ .type = STREAM_STR, .s = (str), .i = 0 })
 
 typedef struct {
     char peek;
@@ -42,7 +41,7 @@ typedef struct {
 
     bool peekAvailable;
 
-    stream s;
+    Stream s;
 } PeekStream;
 
 #define mkPeekStream(str) ((PeekStream){ .peekAvailable = false, .s = str })
@@ -52,7 +51,7 @@ typedef struct {
     bool error;
 } MaybeChar;
 
-MaybeChar stream_popChar(stream *s) {
+MaybeChar stream_popChar(Stream *s) {
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return none(MaybeChar);
         char c = s->s.s[s->i++];
@@ -68,12 +67,12 @@ MaybeChar stream_popChar(stream *s) {
     }
 }
 
-void stream_goBackOnePos(stream *s) {
+void stream_goBackOnePos(Stream *s) {
     if(s->col > 0) { s->col--; }
     else { s->row--; s->col = s->lastCol; }
 }
 
-MaybeRune stream_popRune(stream *s) {
+MaybeRune stream_popRune(Stream *s) {
     char data[4] = {0};
     int len = 0;
     s->preservePos = true;
