@@ -1,5 +1,11 @@
 // Specification:
 // https://www.json.org/json-en.html
+//
+// This implementation slightly deviates from the specification,
+// because it supports trailing commas for objects and arrays
+// TODO: add comment support
+// TODO: fix number parsing and serializing
+// TODO: test this bad boy
 
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
