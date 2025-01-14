@@ -1,4 +1,5 @@
-#include <stdio.h>
+// Specification:
+// https://www.json.org/json-en.html
 
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
@@ -162,8 +163,6 @@ JsonValue JSON_parseNumber(PeekStream *s) {
             if(number < 0) digit = -digit;
             number *= 10; number += digit;
             fnumber *= 10; fnumber += digit;
-
-            printf("current value %d current digit %d\n", number, digit);
 
             if(sign) { number = -number; fnumber = -fnumber; sign = false; }
         }
