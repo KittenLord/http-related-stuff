@@ -54,6 +54,23 @@ struct JsonArray {
     usz length;
 };
 
+bool JSON_isWhitespace(rune r);
+bool JSON_isControl(rune r);
+bool JSON_isAlpha(rune r);
+bool JSON_startNumber(rune r);
+bool JSON_isDigit(rune r);
+
+MaybeRune JSON_popWhitespace(PeekStream *s);
+String JSON_parseIdentifier(PeekStream *s, Alloc *alloc);
+
+JsonValue JSON_parseNumber(PeekStream *s);
+JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc);
+JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc);
+JsonValue JSON_parseString(PeekStream *s, Alloc *alloc);
+JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc);
+
+
+
 bool JSON_isWhitespace(rune r) {
     return r == ' ' || r == '\t' || r == '\n' || r == '\r';
 }
@@ -76,8 +93,13 @@ bool JSON_isDigit(rune r) {
     return r >= '0' && r <= '9';
 }
 
-JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc);
-JsonValue JSON_parseString(PeekStream *s, Alloc *alloc);
+MaybeRune JSON_popWhitespace(PeekStream *s) {
+    MaybeRune r;
+    while(!(r = pstream_peekRune(s)).error && JSON_isWhitespace(r.value)) { 
+        pstream_popRune(s);
+    }
+    return r;
+}
 
 String JSON_parseIdentifier(PeekStream *s, Alloc *alloc) {
     StringBuilder sb = mkStringBuilderCap(16);
@@ -101,14 +123,6 @@ String JSON_parseIdentifier(PeekStream *s, Alloc *alloc) {
 
     String result = sb_build(sb);
     return result;
-}
-
-MaybeRune JSON_popWhitespace(PeekStream *s) {
-    MaybeRune r;
-    while(!(r = pstream_peekRune(s)).error && JSON_isWhitespace(r.value)) { 
-        pstream_popRune(s);
-    }
-    return r;
 }
 
 JsonValue JSON_parseNumber(PeekStream *s) {
@@ -231,11 +245,7 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
     MaybeRune r = JSON_popWhitespace(s);
     while(isJust(r) && r.value != '}') {
 
-        printf("Object iteration\n");
-
         if(isJust(r) && r.value != '\"') {
-            printf("Next symbol: '%c'\n", r.value);
-            printf("Next symbol: '%x'\n", r.value);
             return fail(JsonValue, mkString("Expected a key literal" DEBUG_LOC));
         }
 
