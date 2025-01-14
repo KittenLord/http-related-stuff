@@ -68,6 +68,18 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc);
 JsonValue JSON_parseString(PeekStream *s, Alloc *alloc);
 JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc);
 
+JsonValue JSON_parse(PeekStream *s, Alloc *alloc);
+
+bool JSON_serializeString(String string, Stream *s);
+bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent);
+bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent);
+bool JSON_serializeNull(JsonValue value, Stream *s);
+bool JSON_serializeBool(JsonValue value, Stream *s);
+bool JSON_serializeNumber(JsonValue value, Stream *s);
+bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent);
+
+bool JSON_serialize(JsonValue value, Stream *s, bool doIndent);
+
 
 
 bool JSON_isWhitespace(rune r) {
@@ -147,8 +159,11 @@ JsonValue JSON_parseNumber(PeekStream *s) {
 
             pstream_popRune(s); // pop the digit
             i64 digit = r.value - '0';
+            if(number < 0) digit = -digit;
             number *= 10; number += digit;
             fnumber *= 10; fnumber += digit;
+
+            printf("current value %d current digit %d\n", number, digit);
 
             if(sign) { number = -number; fnumber = -fnumber; sign = false; }
         }
@@ -497,8 +512,6 @@ bool JSON_serializeString(String string, Stream *s) {
     return true;
 }
 
-bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent);
-
 bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent) {
     if(value.type != JSON_ARRAY) return false;
 
@@ -610,6 +623,30 @@ bool JSON_serializeBool(JsonValue value, Stream *s) {
     return result;
 }
 
+bool JSON_serializeNumber(JsonValue value, Stream *s) {
+    if(value.type != JSON_NUMBER) return false;
+    bool result = true;
+
+    StringBuilder sb = mkStringBuilderCap(32);
+    i64 number = value.number;
+    bool sign = number < 0;
+
+    while(number != 0) {
+        i64 digit = number % 10;
+        if(digit < 0) digit = -digit;
+        sb_appendRune(&sb, (rune)(digit + '0'));
+        number /= 10;
+    }
+
+    String str = sb_build(sb);
+    if(sign) result = result && stream_writeRune(s, '-');
+    for(int i = str.len - 1; i >= 0; i--) {
+        result = result && stream_writeRune(s, str.s[i]);
+    }
+
+    return result;
+}
+
 bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent) {
     if(isNone(value)) return false;
 
@@ -618,6 +655,7 @@ bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent) 
     else if(value.type == JSON_ARRAY) JSON_serializeArray(value, s, doIndent, indent);
     else if(value.type == JSON_NULL) JSON_serializeNull(value, s);
     else if(value.type == JSON_BOOL) JSON_serializeBool(value, s);
+    else if(value.type == JSON_NUMBER) JSON_serializeNumber(value, s);
     else { return false; }
 }
 
