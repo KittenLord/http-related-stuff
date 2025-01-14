@@ -4,7 +4,8 @@
 #include "types.h"
 #include "macros.h"
 
-#define RUNE_OKAY 0
+#define RUNE_NONE 0
+#define RUNE_EOF 0
 #define RUNE_INVALID 1
 #define RUNE_UNFINISHED 2
 typedef struct {

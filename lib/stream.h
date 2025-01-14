@@ -17,8 +17,8 @@ struct Stream {
 
     usz pos;
     usz col;
-    usz lastCol;
     usz row;
+    usz lastCol;
     bool preservePos;
 
     union {
@@ -46,9 +46,13 @@ typedef struct {
 
 #define mkPeekStream(str) ((PeekStream){ .peekAvailable = false, .s = str })
 
+#define CHAR_NONE 0
+#define CHAR_EOF 0
+#define CHAR_ERROR 1
 typedef struct {
     char value;
     bool error;
+    u8 errmsg;
 } MaybeChar;
 
 MaybeChar stream_popChar(Stream *s) {
@@ -63,7 +67,7 @@ MaybeChar stream_popChar(Stream *s) {
         return just(MaybeChar, c);
     }
     else {
-        return none(MaybeChar);
+        return fail(MaybeChar, CHAR_ERROR);
     }
 }
 
@@ -89,7 +93,8 @@ MaybeRune stream_popRune(Stream *s) {
     s->preservePos = true;
     while(len < 4) {
         MaybeChar c = stream_popChar(s);
-        if(c.error) return fail(MaybeRune, RUNE_INVALID);
+        if(isFail(c, CHAR_EOF) && len == 0) return none(MaybeRune);
+        if(isNone(c)) return fail(MaybeRune, RUNE_INVALID);
         data[len] = c.value;
         len++;
 

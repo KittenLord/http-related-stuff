@@ -12,6 +12,30 @@ typedef struct {
     usz len;
 } String;
 
+#define mkStringLen(_s, _len) ((String){ .s = (_s), .len = (_len) })
+#define mkString(_s) ((String){ .s = (_s), .len = strlen((_s)) })
+
+bool str_equal(String a, String b) {
+    if(a.s == null || b.s == null) return false;
+    if(a.len != b.len) return false;
+    usz len = a.len;
+
+    // NOTE: I'm pretty sure this will still work for utf-8 strings
+    for(int i = 0; i < len; i++) {
+        if(a.s[i] != b.s[i]) return false;
+        return true;
+    }
+
+    return true;
+}
+
+#define STRING_NONE 0
+typedef struct {
+    String value;
+    u64 errmsg;
+    bool error;
+} MaybeString;
+
 typedef struct {
     byte *s;
     usz len;
@@ -23,10 +47,12 @@ typedef struct {
 } StringBuilder;
 
 #define mkStringBuilder() ((StringBuilder){ .alloc = &ALLOC })
+#define mkStringBuilderCap(c) ((StringBuilder){ .alloc = &ALLOC, .cap = (c) })
+
 #define sb_build(sb) ((String){ .s = (sb).s, .len = (sb).len })
 
 bool sb_appendChar(StringBuilder *sb, char c) {
-    if(sb->len < sb->cap) { sb->s[sb->len++] = c; return true; }
+    if(sb->s && sb->len < sb->cap) { sb->s[sb->len++] = c; return true; }
     if(sb->dontExpand) return false;
     if(sb->cap == 0) sb->cap = 64;
     usz newCap = sb->s == null ? sb->cap : sb->cap * 2;
@@ -59,8 +85,5 @@ bool sb_appendRune(StringBuilder *sb, rune r) {
 
     return false;
 }
-
-#define mkStringLen(_s, _len) ((String){ .s = _s, .len = _len })
-#define mkString(_s) ((String){ .s = _s, .len = strlen(_s) })
 
 #endif // __LIB_STR
