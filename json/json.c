@@ -13,7 +13,6 @@ typedef u8 JsonValueType;
 #define JSON_FLOAT 6
 struct JsonValue {
     bool error;
-
     String errmsg;
 
     JsonValueType type;
@@ -266,6 +265,8 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
         JsonKeyValue *pkeyValue = alloc->alloc(*alloc, sizeof(JsonKeyValue));
         *pkeyValue = keyValue;
 
+        object.length++;
+
         if(last == null) {
             object.items = pkeyValue;
             last = pkeyValue;
@@ -465,4 +466,85 @@ JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
     JSON_popWhitespace(s);
 
     return result;
+}
+
+bool JSON_serializeString(String string, Stream *s) {
+    Stream str = mkStreamStr(string);
+    if(!stream_writeRune(s, '\"')) return false;
+    MaybeRune mr;
+    bool result = true;
+    // TODO: JSON may allow any byte sequence, gotta check that
+    while(isJust(mr = stream_popRune(&str))) {
+        rune r = mr.value;
+        // TODO: add all escape characters from the spec
+        if     (r == '\n') { result = result && stream_writeRune(s, '\\'); result = result && stream_writeRune(s, 'n'); }
+        else if(r == '\"') { result = result && stream_writeRune(s, '\\'); result = result && stream_writeRune(s, '\"'); }
+        else { result = result && stream_writeRune(s, r); }
+
+        if(!result) return false;
+    }
+
+    result = result && stream_writeRune(s, '\"');
+
+    return true;
+}
+
+bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent);
+
+bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent) {
+    if(value.type != JSON_OBJECT) return false;
+
+    JsonObject object = *value.object;
+    JsonKeyValue *kv = object.items;
+
+    bool result = true;
+    result = result && stream_writeRune(s, '{');
+
+    if(object.length == 0) { result = result && stream_writeRune(s, '}'); return result; }
+
+    if(doIndent) result = result && stream_writeRune(s, '\n');
+    if(!result) return false;
+
+    while(kv) {
+        if(doIndent) {
+            for(int i = 0; i < indent + 4; i++) {
+                result = result && stream_writeRune(s, ' ');
+            }
+        }
+
+        result = result && JSON_serializeString(kv->key, s);
+
+        if(doIndent) result = result && stream_writeRune(s, ' ');
+        result = result && stream_writeRune(s, ':');
+        if(doIndent) result = result && stream_writeRune(s, ' ');
+
+        result = result && JSON_serializeValue(kv->value, s, doIndent, indent + 4);
+
+        if(kv->next) result = result && stream_writeRune(s, ',');
+
+        if(doIndent) result = result && stream_writeRune(s, '\n');
+        if(!result) return false;
+        kv = kv->next;
+    }
+
+    if(doIndent) {
+        for(int i = 0; i < indent; i++) {
+            result = result && stream_writeRune(s, ' ');
+        }
+    }
+
+    result = result && stream_writeRune(s, '}');
+    return result;
+}
+
+bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent) {
+    if(isNone(value)) return false;
+
+    if(value.type == JSON_OBJECT) JSON_serializeObject(value, s, doIndent, indent);
+    if(value.type == JSON_STRING) JSON_serializeString(value.string, s);
+}
+
+bool JSON_serialize(JsonValue value, Stream *s, bool doIndent) {
+    if(isNone(value)) return false;
+    JSON_serializeValue(value, s, doIndent, 0);
 }

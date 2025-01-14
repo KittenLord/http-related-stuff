@@ -1,6 +1,8 @@
 #ifndef __LIB_STREAM
 #define __LIB_STREAM
 
+#include <unistd.h>
+
 #include "str.h"
 #include "types.h"
 #include "runes.h"
@@ -34,6 +36,7 @@ struct Stream {
 };
 
 #define mkStreamStr(str) ((Stream){ .type = STREAM_STR, .s = (str), .i = 0 })
+#define mkStreamFd(_fd) ((Stream){ .type = STREAM_FD, .fd = (_fd) })
 
 typedef struct {
     char peek;
@@ -66,6 +69,12 @@ MaybeChar stream_popChar(Stream *s) {
         }
         return just(MaybeChar, c);
     }
+    else if(s->type == STREAM_FD) {
+        char c;
+        isz result = read(s->fd, &c, 1);
+        if(result <= 0) return fail(MaybeChar, CHAR_ERROR);
+        return just(MaybeChar, c);
+    }
     else {
         return fail(MaybeChar, CHAR_ERROR);
     }
@@ -77,9 +86,25 @@ bool stream_writeChar(Stream *s, char c) {
         s->s.s[s->i++] = c;
         return true;
     }
+    else if(s->type == STREAM_FD) {
+        write(s->fd, &c, 1);
+    }
     else {
         return false;
     }
+}
+
+// TODO: is it possible to undo write, if not the whole rune had been written?
+// maybe add a
+//      usz stream_getAvailableLength(Stream *s);
+bool stream_writeRune(Stream *s, rune r) {
+    i8 len = getRuneLen(r);
+    char *data = (char *)&r;
+    for(int i = 0; i < len; i++) {
+        bool result = stream_writeChar(s, data[i]);
+        if(!result) return false;
+    }
+    return true;
 }
 
 void stream_goBackOnePos(Stream *s) {
@@ -105,8 +130,7 @@ MaybeRune stream_popRune(Stream *s) {
         s->pos++;
         if(r.value == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
         else                { s->col++; }
-        s->preservePos = false;
-        return r;
+        s->preservePos = false; return r;
     }
 
     s->preservePos = false;

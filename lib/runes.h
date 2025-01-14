@@ -48,6 +48,15 @@ bool runeUtf4(byte c0, byte c1, byte c2, byte c3, u8 cap) {
     (c0 == 0xF4) && ((c1 >= 0x80 && c1 <= 0x8F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3);
 }
 
+i8 getRuneLen(rune r) {
+    if(r == (r & 0x00000000)) return 1;
+    if(r == (r & 0x000000FF)) return 1;
+    if(r == (r & 0x0000FFFF)) return 2;
+    if(r == (r & 0x00FFFFFF)) return 3;
+    if(r == (r & 0xFFFFFFFF)) return 4;
+    return -1;
+}
+
 MaybeRune getRune(byte *data, usz len) {
     if(len == 1) {
         byte c0 = *data;
