@@ -6,19 +6,13 @@
 #include "json.c"
 
 int main() {
-
-    PeekStream s = mkPeekStream(mkStreamStr(mkString(" { \"a\":\"b\",\"c\":{\"inner\":\"i\"} } ")));
+    PeekStream s = mkPeekStream(mkStreamStr(mkString(" {\"a\":null,\"test\":{\"array\":[\"a\",\"b\",\"c\"]}} ")));
 
     JsonValue value;
     Alloc resultAlloc = mkAlloc_LinearExpandable();
     UseAlloc(mkAlloc_LinearExpandable(), {
-        value = JSON_parseValue(&s, &resultAlloc);
+        value = JSON_parse(&s, &resultAlloc);
     });
-
-    printf("%x\n", value.error);
-    if(value.errmsg.s) printf("%s\n", value.errmsg.s);
-    printf("col:row %d:%d\n", s.s.col, s.s.row);
-    printf("%x\n", value.type);
 
     Stream cout = mkStreamFd(STDOUT_FILENO);
     JSON_serialize(value, &cout, true);
