@@ -10,6 +10,7 @@ typedef u8 JsonValueType;
 #define JSON_OBJECT 3
 #define JSON_ARRAY 4
 #define JSON_BOOL 5
+#define JSON_FLOAT 6
 struct JsonValue {
     bool error;
 
@@ -18,8 +19,10 @@ struct JsonValue {
     JsonValueType type;
     union {
         String string;
-        i64 number;
-        f64 fnumber;
+        struct {
+            i64 number;
+            f64 fnumber;
+        };
         JsonObject *object;
         JsonArray *array;
         bool boolean;
@@ -29,7 +32,7 @@ struct JsonValue {
 typedef struct JsonKeyValue JsonKeyValue;
 struct JsonKeyValue {
     String key;
-    JsonValue *value;
+    JsonValue value;
 
     JsonKeyValue *next;
 };
@@ -63,6 +66,14 @@ bool JSON_isControl(rune r) {
 // NOTE: JSON only supports 3 identifiers (true, false, null), neither of them have capital letters
 bool JSON_isAlpha(rune r) {
     return (r >= 'a' && r <= 'z');
+}
+
+bool JSON_startNumber(rune r) {
+    return r == '-' || (r >= '0' && r <= '9');
+}
+
+bool JSON_isDigit(rune r) {
+    return r >= '0' && r <= '9';
 }
 
 JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc);
@@ -100,24 +111,161 @@ MaybeRune JSON_popWhitespace(PeekStream *s) {
     return r;
 }
 
+JsonValue JSON_parseNumber(PeekStream *s) {
+    i64 number = 0;
+    f64 fnumber = 0;
+    bool sign;
+    bool canBeInteger = true;
+
+    MaybeRune r = pstream_peekRune(s); // -, 0-9
+    if(r.value == '-') {
+        sign = true;
+        pstream_popRune(s);
+        r = pstream_peekRune(s);
+    }
+
+    if(isNone(r)) {
+        return fail(JsonValue, mkString("Couldn't read the full number" DEBUG_LOC));
+    }
+
+    if(isJust(r) && r.value != '0') {
+        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
+            // TODO: i64 bounds checking
+
+            pstream_popRune(s); // pop the digit
+            i64 digit = r.value - '0';
+            number *= 10; number += digit;
+            fnumber *= 10; fnumber += digit;
+
+            if(sign) { number = -number; fnumber = -fnumber; sign = false; }
+        }
+    }
+    else if(isJust(r) && r.value == '0') {
+        pstream_popRune(s); // pop zero
+    }
+
+    r = pstream_peekRune(s);
+
+    if(isFail(r, RUNE_EOF)) {
+        JsonValueType type = canBeInteger ? JSON_NUMBER : JSON_FLOAT;
+        return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
+    }
+    else if(isNone(r)) {
+        return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+    }
+
+    if(isJust(r) && r.value == '.') {
+        pstream_popRune(s);
+        canBeInteger = false;
+        bool atLeastOneDigit = false;
+        f64 power = 10;
+
+        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
+            pstream_popRune(s); // pop the digit
+            atLeastOneDigit = true;
+            f64 digit = (f64)(r.value - '0');
+            digit /= power;
+            power *= 10;
+            fnumber += digit;
+        }
+
+        if(!atLeastOneDigit) {
+            return fail(JsonValue, mkString("No digits after a decimal point" DEBUG_LOC));
+        }
+    }
+
+    r = pstream_peekRune(s);
+
+    if(isFail(r, RUNE_EOF)) {
+        JsonValueType type = canBeInteger ? JSON_NUMBER : JSON_FLOAT;
+        return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
+    }
+    else if(isNone(r)) {
+        return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+    }
+
+    if(isJust(r) && (r.value == 'e' || r.value == 'E')) {
+        pstream_popRune(s); // pop the exponent
+
+        r = pstream_peekRune(s);
+
+        if(isNone(r) || (isJust(r) && r.value != '+' && r.value != '-')) {
+            return fail(JsonValue, mkString("No sign after an exponent identifier" DEBUG_LOC));
+        }
+
+        r = pstream_popRune(s);
+        bool expNegative = r.value == '-';
+        bool makeExpNegative = expNegative;
+        bool atLeastOneDigit = false;
+        f64 exponent = 0;
+
+        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
+            pstream_popRune(s); // pop the digit
+            atLeastOneDigit = true;
+            i64 digit = r.value - '0';
+            exponent *= 10;
+            exponent += digit;
+            if(makeExpNegative && digit != 0) { exponent = -exponent; makeExpNegative = false; }
+        }
+
+        if(!atLeastOneDigit) {
+            return fail(JsonValue, mkString("No digits after an exponent" DEBUG_LOC));
+        }
+
+        for(f64 i = 0; i < exponent; i += 1) {
+            if(expNegative) { number /= 10; fnumber /= 10; }
+            else            { number *= 10; fnumber *= 10; }
+        }
+    }
+
+    JsonValueType type = canBeInteger ? JSON_NUMBER : JSON_FLOAT;
+    return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
+}
+
 JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
     pstream_popRune(s); // pop the opening curly brace
 
-    MaybeRune r = JSON_popWhitespace(s);
+    JsonObject object = {0};
+    JsonKeyValue *last = null;
 
+    MaybeRune r = JSON_popWhitespace(s);
     while(isJust(r) && r.value != '}') {
-        JsonValue string = JSON_parseString(s, alloc);
-        if(isNone(string)) return string;
+
+        printf("Object iteration\n");
+
+        if(isJust(r) && r.value != '\"') {
+            printf("Next symbol: '%c'\n", r.value);
+            printf("Next symbol: '%x'\n", r.value);
+            return fail(JsonValue, mkString("Expected a key literal" DEBUG_LOC));
+        }
+
+        JsonValue key = JSON_parseString(s, alloc);
+        if(isNone(key)) return key;
 
         r = JSON_popWhitespace(s);
 
-        if(isNone(r) || r != ':') {
-            return fail(JsonValue, "Expected a colon :" DEBUG_LOC);
+        if(isNone(r) || (isJust(r) && r.value != ':')) {
+            return fail(JsonValue, mkString("Expected a colon :" DEBUG_LOC));
         }
 
         pstream_popRune(s); // pop the colon
 
         JsonValue value = JSON_parseValue(s, alloc);
+
+        JsonKeyValue keyValue = { .key = key.string, .value = value };
+        JsonKeyValue *pkeyValue = alloc->alloc(*alloc, sizeof(JsonKeyValue));
+        *pkeyValue = keyValue;
+
+        if(last == null) {
+            object.items = pkeyValue;
+            last = pkeyValue;
+        }
+        else {
+            last->next = pkeyValue;
+            last = pkeyValue;
+        }
+
+        r = pstream_peekRune(s);
 
         if(isJust(r) && r.value == ',') {
             pstream_popRune(s); // pop the comma
@@ -129,6 +277,24 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
             }
         }
     }
+
+    if(isNone(r)) {
+        if(isFail(r, RUNE_EOF)) {
+            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+        }
+        else {
+            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        }
+    }
+
+    if(isJust(r) && r.value == '}') {
+        pstream_popRune(s);
+    }
+
+    JsonObject *pobject = alloc->alloc(*alloc, sizeof(JsonObject));
+    *pobject = object;
+    JsonValue result = { .type = JSON_OBJECT, .object = pobject };
+    return result;
 }
 
 JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
@@ -217,13 +383,13 @@ JsonValue JSON_parseString(PeekStream *s, Alloc *alloc) {
         sb_appendRune(&sb, r.value);
     }
 
-    if(r.value == '\"') {
+    if(isJust(r) && r.value == '\"') {
         pstream_popRune(s);
         JsonValue result = { .type = JSON_STRING, .string = sb_build(sb) };
         return result;
     }
 
-    if(JSON_isControl(r.value)) {
+    if(isJust(r) && JSON_isControl(r.value)) {
         return fail(JsonValue, mkString("A control character within a sequence" DEBUG_LOC));
     }
 
@@ -248,11 +414,11 @@ JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
     JsonValue result;
     String identifier;
     if(r.value == '\"') {
-        // JSON string
         result = JSON_parseString(s, alloc);
     }
     else if(r.value == '{') {
-        // JSON object
+        result = JSON_parseObject(s, alloc);
+        if(isNone(result)) return result;
     }
     else if(r.value == '[') {
         result = JSON_parseArray(s, alloc);
@@ -267,7 +433,7 @@ JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
             result = (JsonValue){ .type = JSON_BOOL, .boolean = false };
         }
         else {
-            result = fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
+            return fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
         }
     }
     else if(r.value == 'n') {
@@ -276,14 +442,14 @@ JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
             result = (JsonValue){ .type = JSON_NULL };
         }
         else {
-            result = fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
+            return fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
         }
     }
-    else if(false) {
-        // JSON number
+    else if(JSON_startNumber(r.value)) {
+        result = JSON_parseNumber(s);
     }
     else {
-        result = fail(JsonValue, mkString("Unexpected character" DEBUG_LOC));
+        return fail(JsonValue, mkString("Unexpected character" DEBUG_LOC));
     }
 
     JSON_popWhitespace(s);

@@ -7,7 +7,7 @@
 
 int main() {
 
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("  [\"aboba\"]  ")));
+    PeekStream s = mkPeekStream(mkStreamStr(mkString("  { \"a\":5, \"aboba\":\"thing\",\"array\":[ 1, 2, 3 ] }  ")));
 
     JsonValue value;
     Alloc resultAlloc = mkAlloc_LinearExpandable();
@@ -17,6 +17,7 @@ int main() {
 
     printf("%x\n", value.error);
     if(value.errmsg.s) printf("%s\n", value.errmsg.s);
+    printf("col:row %d:%d\n", s.s.col, s.s.row);
     printf("%x\n", value.type);
 
     return 0;
