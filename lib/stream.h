@@ -137,7 +137,7 @@ MaybeRune stream_popRune(Stream *s) {
     return fail(MaybeRune, RUNE_INVALID);
 }
 
-MaybeChar pstream_peek(PeekStream *s) {
+MaybeChar pstream_peekChar(PeekStream *s) {
     if(s->peekAvailable) return just(MaybeChar, s->peek);
     MaybeChar c = stream_popChar(&s->s);
     if(c.error) return c;
@@ -146,7 +146,7 @@ MaybeChar pstream_peek(PeekStream *s) {
     return c;
 }
 
-MaybeChar pstream_pop(PeekStream *s) {
+MaybeChar pstream_popChar(PeekStream *s) {
     if(s->peekAvailable) { s->peekAvailable = false; return just(MaybeChar, s->peek); }
     return stream_popChar(&s->s);
 }

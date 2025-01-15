@@ -9,6 +9,9 @@
 
 // TODO: replace JSON with Json
 
+#include <types.h>
+#include <stream.h>
+
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
 typedef struct JsonValue JsonValue;
@@ -284,7 +287,7 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
         JsonValue value = JSON_parseValue(s, alloc);
 
         JsonKeyValue keyValue = { .key = key.string, .value = value };
-        JsonKeyValue *pkeyValue = alloc->alloc(*alloc, sizeof(JsonKeyValue));
+        JsonKeyValue *pkeyValue = AllocateBytesC(alloc, sizeof(JsonKeyValue));
         *pkeyValue = keyValue;
 
         object.length++;
@@ -324,7 +327,7 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
         pstream_popRune(s);
     }
 
-    JsonObject *pobject = alloc->alloc(*alloc, sizeof(JsonObject));
+    JsonObject *pobject = AllocateBytesC(alloc, sizeof(JsonObject));
     *pobject = object;
     JsonValue result = { .type = JSON_OBJECT, .object = pobject };
     return result;
@@ -354,7 +357,7 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
 
         array.length++;
         JsonArrayElement item = { .value = value };
-        JsonArrayElement *pitem = alloc->alloc(*alloc, sizeof(JsonArrayElement));
+        JsonArrayElement *pitem = AllocateBytesC(alloc, sizeof(JsonArrayElement));
         *pitem = item;
 
         if(last == null) {
@@ -392,7 +395,7 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
         pstream_popRune(s);
     }
 
-    JsonArray *parray = alloc->alloc(*alloc, sizeof(JsonArray));
+    JsonArray *parray = AllocateBytesC(alloc, sizeof(JsonArray));
     *parray = array;
 
     JsonValue result = { .type = JSON_ARRAY, .array = parray };

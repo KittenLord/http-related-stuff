@@ -56,8 +56,9 @@ bool sb_appendChar(StringBuilder *sb, char c) {
     if(sb->dontExpand) return false;
     if(sb->cap == 0) sb->cap = 64;
     usz newCap = sb->s == null ? sb->cap : sb->cap * 2;
-    byte *new = sb->alloc->alloc(*sb->alloc, newCap);
+    byte *new = AllocateBytesC(sb->alloc, newCap);
     if(sb->s) memcpy(new, sb->s, sb->cap);
+    FreeC(sb->alloc, sb->s);
     sb->s = new;
     sb->cap = newCap;
     sb->s[sb->len++] = c;
