@@ -55,7 +55,7 @@ typedef struct {
 typedef struct {
     char value;
     bool error;
-    u8 errmsg;
+    u64 errmsg;
 } MaybeChar;
 
 MaybeChar stream_popChar(Stream *s) {

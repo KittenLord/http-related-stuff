@@ -1,6 +1,8 @@
 #ifndef __LIB_ALLOC
 #define __LIB_ALLOC
 
+// TODO: figure out how to make an allocator stack per thread, or some other approach
+
 // TODO: obviously remove these two
 #include <stdlib.h>
 #include <string.h>

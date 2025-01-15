@@ -11,7 +11,7 @@
 typedef struct {
     rune value;
     bool error;
-    u8 errmsg;
+    u64 errmsg;
 } MaybeRune;
 
 #define rune1(c0) (c0) 
