@@ -7,6 +7,8 @@
 // TODO: fix number parsing and serializing
 // TODO: test this bad boy
 
+// TODO: replace JSON with Json
+
 typedef struct JsonObject JsonObject;
 typedef struct JsonArray JsonArray;
 typedef struct JsonValue JsonValue;
