@@ -171,13 +171,19 @@ byte Uri_normalizePercentByte(byte c) {
     return c;
 }
 
-bool Uri_isPchar(byte c) {
+// NOTE: a lot of productions use this instead of an actual
+// pchar, and pchar is a superset of this, so might as well
+// define it separately
+bool Uri_isPcharRaw(byte c, String extra) {
     return
     Uri_isUnreserved(c)            ||
-    c == '%'                       ||
     Uri_isSubcomponentDelimiter(c) ||
-    c == '@'                       ||
-    c == ':'                       ;
+    c == '%'                       ||
+    string_contains(c, extra)      ;
+}
+
+bool Uri_isPchar(byte c) {
+    return Uri_isPcharRaw(c, mkString("@:"));
 }
 
 MaybeString Uri_parseScheme(PeekStream *s, Alloc *alloc) {
@@ -358,6 +364,7 @@ UriHost Uri_parseHost(PeekStream *s, Alloc *alloc) {
     UriHost ipv4Host = Uri_parseHostIpv4(&ipv4Stream);
     if(isJust(ipv4Host)) return ipv4Host;
 
+    // TODO: validate percent encodings
     UriHost host = { .type = URI_HOST_REGNAME, .regName = sb_build(buffer) };
     return host;
 }
@@ -390,6 +397,7 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     }
 
     if(isJust(c) && c.value == '@') {
+        // TODO: validate percent-encodings
         pstream_popChar(s);
         authority.hasUserInfo = true;
         authority.userInfo = sb_build(userInfo);

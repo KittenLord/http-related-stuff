@@ -87,4 +87,11 @@ bool sb_appendRune(StringBuilder *sb, rune r) {
     return false;
 }
 
+bool string_contains(char c, String s) {
+    for(int i = 0; i < s.len; i++) {
+        if(s.s[i] == c) return true;
+    }
+    return false;
+}
+
 #endif // __LIB_STR
