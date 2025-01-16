@@ -4,12 +4,32 @@
 
 // NOTE: If I got it correctly, the RFC3986 only permits the character set that is used in US-ASCII, and everything else is to be encoded using percent-encodings, so this implementation uses char everywhere
 
+typedef struct {
+    byte a;
+    byte b;
+    byte c;
+    byte d;
+} UriIpv4;
+
+typedef struct {
+
+} UriIpLiteral;
+
 typedef u8 UriHostType;
+#define URI_HOST_IPLITERAL 1
+#define URI_HOST_IPV4 2
+#define URI_HOST_REGNAME 3
 typedef struct {
     bool error;
     String errmsg;
 
     UriHostType type;
+
+    union {
+        String regName;
+        UriIpv4 ipv4;
+        UriIpLiteral ipLiteral;
+    };
 } UriHost;
 
 typedef struct {
@@ -254,7 +274,7 @@ UriPath Uri_parsePathAbempty(PeekStream *s, Alloc *alloc) {
         pstream_popChar(s);
 
         AllocateVarC(UriPathSegment, segment, Uri_parsePathSegment(s, alloc, false, false), alloc);
-        if(isNone(*segment)) return fail(UriPath, mkString("This shouldn't happen" DEBUG_LOC));
+        if(isFail(*segment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriPath, mkString("Invalid percent encoding" DEBUG_LOC));
 
         path.segmentCount++;
         if(last == null) {
@@ -295,8 +315,51 @@ UriPath Uri_parsePathNoscheme(PeekStream *s, Alloc *alloc) {
     return path;
 }
 
-UriHost Uri_parseHost(PeekStream *s, Alloc *alloc) {
+UriHost Uri_parseHostIpLiteral(PeekStream *s, Alloc *alloc) {
+    return (UriHost){0};
+}
 
+UriHost Uri_parseHostIpv4(PeekStream *s) {
+    u8 values[4] = {0};
+    MaybeChar c;
+    for(int i = 0; i < 4; i++) {
+        u8 acc = 0;
+        while(isJust(c = pstream_peekChar(s)) && Uri_isDigit(c.value)) {
+            if(acc >= 100) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
+            acc *= 10;
+            acc += c.value - '0';
+        }
+
+        if(i != 3) {
+            if(isNone(c) || (isJust(c) && c.value != '.')) return fail(UriHost, mkString("IPv4 format requires periods '.' between each number" DEBUG_LOC));
+            pstream_popChar(s);
+        }
+
+        values[i] = acc;
+    }
+
+    UriHost host = { .type = URI_HOST_IPV4, .ipv4 = { .a = values[0], .b = values[1], .c = values[2], .d = values[3] } };
+    return host;
+}
+
+UriHost Uri_parseHost(PeekStream *s, Alloc *alloc) {
+    MaybeChar c = pstream_peekChar(s);
+    if(isJust(c) && c.value == '[') return Uri_parseHostIpLiteral(s, alloc);
+
+    StringBuilder buffer = mkStringBuilderCap(64);
+    buffer.alloc = alloc;
+
+    while(isJust(c = pstream_peekChar(s)) && c.value != ':' && c.value != '/' && c.value != '?' && c.value != '#') {
+        pstream_popChar(s);
+        sb_appendChar(&buffer, c.value);
+    }
+
+    PeekStream ipv4Stream = mkPeekStream(mkStreamStr(sb_build(buffer)));
+    UriHost ipv4Host = Uri_parseHostIpv4(&ipv4Stream);
+    if(isJust(ipv4Host)) return ipv4Host;
+
+    UriHost host = { .type = URI_HOST_REGNAME, .regName = sb_build(buffer) };
+    return host;
 }
 
 UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
@@ -310,19 +373,26 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     // ambiguity entirely and can continue parsing without additional
     // allocations
 
-    StringBuilder userinfo = mkStringBuilderCap(64);
-    userinfo.alloc = alloc;
+    UriAuthority authority = {0};
+    authority.hasUserInfo = false;
+    authority.hasPort = false;
+
+    StringBuilder userInfo = mkStringBuilderCap(64);
+    userInfo.alloc = alloc;
 
     StringBuilder buffer = mkStringBuilderCap(64);
 
     MaybeChar c;
     while(isJust(c = pstream_peekChar(s)) && c.value != '/' && c.value != '?' && c.value != '#' && c.value != '@') {
         sb_appendChar(&buffer, c.value);
-        sb_appendChar(&userinfo, c.value);
+        sb_appendChar(&userInfo, c.value);
+        pstream_popChar(s);
     }
 
     if(isJust(c) && c.value == '@') {
         pstream_popChar(s);
+        authority.hasUserInfo = true;
+        authority.userInfo = sb_build(userInfo);
     }
     else {
         // Userinfo has not been detected, so we replace the stream
@@ -331,6 +401,19 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
         PeekStream newStream = mkPeekStream(mkStreamStr(authorityWithoutUserinfo));
         s = &newStream;
     }
+
+    UriHost host = Uri_parseHost(s, alloc);
+    if(isNone(host)) return fail(UriAuthority, host.errmsg);
+    authority.host = host;
+
+    c = pstream_peekChar(s);
+    if(isNone(c)) return authority;
+    if(isJust(c) && c.value != ':') return authority;
+    pstream_popChar(s);
+
+    // TODO: parse port
+
+    return authority;
 }
 
 UriHierarchyPart Uri_parseHier(PeekStream *s, Alloc *alloc) {
@@ -345,8 +428,17 @@ UriHierarchyPart Uri_parseHier(PeekStream *s, Alloc *alloc) {
             // parse authority
             pstream_popChar(s);
             hier.type = URI_HIER_AUTHORITY;
+            hier.hasAuthority = true;
 
             UriAuthority authority = Uri_parseAuthority(s, alloc);
+            if(isNone(authority)) return fail(UriHierarchyPart, authority.errmsg);
+
+            UriPath path = Uri_parsePathAbempty(s, alloc);
+            if(isNone(path)) return fail(UriHierarchyPart, path.errmsg);
+
+            hier.authority = authority;
+            hier.path = path;
+            return hier;
         }
         else {
             // parse absolute (rootless or empty, because we popped the first slash)
@@ -387,6 +479,8 @@ UriHierarchyPart Uri_parseHier(PeekStream *s, Alloc *alloc) {
         hier.hasPath = false;
         return hier;
     }
+
+    return fail(UriHierarchyPart, mkString("Unreachable" DEBUG_LOC));
 }
 
 Uri Uri_parseUri(PeekStream *s, Alloc *alloc) {
@@ -404,4 +498,6 @@ Uri Uri_parseUri(PeekStream *s, Alloc *alloc) {
     UriHierarchyPart hier = Uri_parseHier(s, alloc);
     if(isNone(hier)) return fail(Uri, hier.errmsg);
     uri.hierarchyPart = hier;
+
+    return uri;
 }

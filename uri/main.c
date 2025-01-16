@@ -6,7 +6,7 @@
 #include "uri.c"
 
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://test.test/a?query#fragment")));
+    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://tes%t.test/%a/a/a/a")));
 
     Uri uri;
     Alloc resultAlloc = mkAlloc_LinearExpandable();
@@ -16,6 +16,12 @@ int main() {
 
     if(uri.error) {
         printf("%s\n", uri.errmsg.s);
+    }
+    else {
+        printf("Very good\n");
+
+        printf("%s\n", uri.scheme.s);
+        printf("%s\n", uri.hierarchyPart.authority.host.regName.s);
     }
 
     printf("Hello, World!\n");
