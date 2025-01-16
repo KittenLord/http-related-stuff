@@ -6,7 +6,7 @@
 #include "uri.c"
 
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://tes%t.test/%aa/a/a/a")));
+    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://%aatESt.test:8080/%aa/a/a/a")));
 
     Uri uri;
     Alloc resultAlloc = mkAlloc_LinearExpandable();
@@ -22,6 +22,7 @@ int main() {
 
         printf("%s\n", uri.scheme.s);
         printf("%s\n", uri.hierarchyPart.authority.host.regName.s);
+        printf("%d\n", uri.hierarchyPart.authority.port);
     }
 
     printf("Hello, World!\n");
