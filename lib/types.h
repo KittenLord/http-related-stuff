@@ -46,7 +46,7 @@ typedef uint64_t u64;
 
 #define i64decmin -1000000000000000000
 #define i64decmax 1000000000000000000
-#define u64decmax 10000000000000000000
+#define u64decmax (~((u64)0))
 
 typedef ssize_t isz;
 typedef size_t usz;
