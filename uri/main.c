@@ -5,27 +5,33 @@
 #include <alloc.h>
 #include "uri.c"
 
+#define URIS_COUNT 8
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://%aatESt.test:8080/%aa/a/a/a")));
+    // TODO: add a shitton of test cases (these are taken from RFC3986 itself)
+    String uris[URIS_COUNT] = {
+        mkString("ftp://ftp.is.co.za/rfc/rfc1808.txt"),
+        mkString("http://www.ietf.org/rfc/rfc2396.txt"),
+        mkString("ldap://[2001:db8::7]/c=GB?objectClass?one"),
+        mkString("mailto:John.Doe@example.com"),
+        mkString("news:comp.infosystems.www.servers.unix"),
+        mkString("tel:+1-816-555-1212"),
+        mkString("telnet://192.0.2.16:80/"),
+        mkString("urn:oasis:names:specification:docbook:dtd:xml:4.1.2"),
+    };
 
-    Uri uri;
-    Alloc resultAlloc = mkAlloc_LinearExpandable();
-    UseAlloc(mkAlloc_LinearExpandable(), {
-        uri = Uri_parseUri(&s, &resultAlloc);
-    });
+    for(int i = 0; i < URIS_COUNT; i++) {
+        PeekStream s = mkPeekStream(mkStreamStr(uris[i]));
 
-    if(uri.error) {
-        printf("%s\n", uri.errmsg.s);
+        Uri uri;
+        Alloc resultAlloc = mkAlloc_LinearExpandable();
+        UseAlloc(mkAlloc_LinearExpandable(), {
+            uri = Uri_parseUri(&s, &resultAlloc);
+        });
+
+        if(uri.error) {
+            printf("Test %d failed\n    Reason: %s\n    Stream is at position: %d\n", i, uri.errmsg.s, s.s.pos);
+        }
     }
-    else {
-        printf("Very good\n");
-
-        printf("%s\n", uri.scheme.s);
-        printf("%s\n", uri.hierarchyPart.authority.host.regName.s);
-        printf("%d\n", uri.hierarchyPart.authority.port);
-    }
-
-    printf("Hello, World!\n");
 
     return 0;
 }
