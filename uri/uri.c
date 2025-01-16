@@ -211,7 +211,7 @@ MaybeString Uri_parseScheme(PeekStream *s, Alloc *alloc) {
 }
 
 #define PCHAR_INVALID_PERCENT_ENCODING 1
-MaybeString Uri_parsePchar(PeekStream *s, Alloc *alloc) {
+MaybeString Uri_parsePcharRaw(PeekStream *s, Alloc *alloc, String extra) {
     MaybeChar c = pstream_peekChar(s);
     if(isNone(c)) return none(MaybeString);
 
@@ -219,10 +219,7 @@ MaybeString Uri_parsePchar(PeekStream *s, Alloc *alloc) {
     sb.alloc = alloc;
     sb_appendChar(&sb, c.value);
 
-    if(Uri_isUnreserved(c.value)            ||
-       Uri_isSubcomponentDelimiter(c.value) || 
-       c.value == '@'                       ||
-       c.value == ':'                       ) {
+    if(c.value != '%' && Uri_isPcharRaw(c.value, extra)) {
 
         pstream_popChar(s);
         return just(MaybeString, sb_build(sb));
@@ -245,19 +242,17 @@ MaybeString Uri_parsePchar(PeekStream *s, Alloc *alloc) {
     return just(MaybeString, sb_build(sb));
 }
 
-#define SEGMENT_NO_COLON 1
-#define SEGMENT_NON_ZERO 2
-UriPathSegment Uri_parsePathSegment(PeekStream *s, Alloc *alloc, bool nonZero, bool noColon) {
+#define Uri_parsePchar(s, alloc) Uri_parsePcharRaw((s), (alloc), mkString("@:"))
+
+MaybeString Uri_parsePcharRawString(PeekStream *s, Alloc *alloc, String extra) {
     StringBuilder sb = mkStringBuilderCap(64);
     sb.alloc = alloc;
 
     MaybeChar c = pstream_peekChar(s);
-    while(isJust(c) && Uri_isPchar(c.value)) {
-        if(noColon && c.value == ':') return fail(UriPathSegment, SEGMENT_NO_COLON);
-
-        MaybeString pchar = Uri_parsePchar(s, alloc);
-        if(isFail(pchar, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriPathSegment, PCHAR_INVALID_PERCENT_ENCODING);
-        if(isNone(pchar)) break;
+    while(isJust(c) && Uri_isPcharRaw(c.value, extra)) {
+        MaybeString pchar = Uri_parsePcharRaw(s, alloc, extra);
+        if(isFail(pchar, PCHAR_INVALID_PERCENT_ENCODING)) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
+        if(isNone(pchar)) break; // eof or non pchar
 
         // a pchar can be either 1 or 3 characters (percent encoding)
         for(int i = 0; i < pchar.value.len; i++) {
@@ -265,9 +260,26 @@ UriPathSegment Uri_parsePathSegment(PeekStream *s, Alloc *alloc, bool nonZero, b
         }
     }
 
-    if(nonZero && sb.len == 0) return fail(UriPathSegment, SEGMENT_NON_ZERO);
+    return just(MaybeString, sb_build(sb));
+}
 
-    UriPathSegment segment = { .segment = sb_build(sb) };
+#define Uri_parsePcharString(s, alloc) Uri_parsePcharRawString((s), (alloc), mkString("@:"))
+
+
+#define SEGMENT_NO_COLON 1
+#define SEGMENT_NON_ZERO 2
+UriPathSegment Uri_parsePathSegment(PeekStream *s, Alloc *alloc, bool nonZero, bool noColon) {
+    MaybeString str = noColon ? Uri_parsePcharRawString(s, alloc, mkString("@")) : Uri_parsePcharString(s, alloc);
+    if(isNone(str)) return fail(UriPathSegment, str.errmsg);
+
+    if(noColon) {
+        MaybeChar c = pstream_peekChar(s);
+        if(isJust(c) && c.value == ':') return fail(UriPathSegment, SEGMENT_NO_COLON);
+    }
+
+    if(nonZero && str.value.len == 0) return fail(UriPathSegment, SEGMENT_NON_ZERO);
+
+    UriPathSegment segment = { .segment = str.value };
     return segment;
 }
 
@@ -322,7 +334,8 @@ UriPath Uri_parsePathNoscheme(PeekStream *s, Alloc *alloc) {
 }
 
 UriHost Uri_parseHostIpLiteral(PeekStream *s, Alloc *alloc) {
-    return (UriHost){0};
+    // TODO: implement
+    return fail(UriHost, mkString("Not implemented" DEBUG_LOC));
 }
 
 UriHost Uri_parseHostIpv4(PeekStream *s) {
@@ -331,7 +344,7 @@ UriHost Uri_parseHostIpv4(PeekStream *s) {
     for(int i = 0; i < 4; i++) {
         u8 acc = 0;
         while(isJust(c = pstream_peekChar(s)) && Uri_isDigit(c.value)) {
-            if(acc >= 100) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
+            if(acc >= u8decmax) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
             acc *= 10;
             acc += c.value - '0';
         }

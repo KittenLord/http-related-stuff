@@ -6,7 +6,7 @@
 #include "uri.c"
 
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://tes%t.test/%a/a/a/a")));
+    PeekStream s = mkPeekStream(mkStreamStr(mkString("https://tes%t.test/%aa/a/a/a")));
 
     Uri uri;
     Alloc resultAlloc = mkAlloc_LinearExpandable();
