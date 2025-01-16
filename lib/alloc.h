@@ -66,14 +66,16 @@ void KillC(Alloc *alloc) {
     alloc->kill(alloc);
 }
 
-#define AllocateVar(ty, res, obj) \
+#define AllocateVarC(ty, res, obj, alloc) \
     ty *res = null; \
     { \
-        ty temp = obj; \
+        ty temp = (obj); \
         ptr src = (ptr)&temp; \
-        res = (ty *)AllocateBytes(sizeof(ty)); \
+        res = (ty *)AllocateBytesC(alloc, sizeof(ty)); \
         memcpy((ptr)res, src, sizeof(ty)); \
     }
+
+#define AllocateVar(ty, res, obj) AllocateVarC(ty, res, (obj), &ALLOC)
 
 #define UseAlloc(a, block) BLOCK({ Alloc ___temp = a; ALLOC_PUSH(___temp); { block; }; ALLOC_POP(); })
 
