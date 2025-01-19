@@ -13,6 +13,7 @@ typedef u8 StreamType;
 #define STREAM_STR 1
 #define STREAM_FD 2
 #define STREAM_FILE 3
+#define STREAM_SB 4
 typedef struct Stream Stream;
 struct Stream {
     StreamType type;
@@ -32,11 +33,16 @@ struct Stream {
         struct {
             int fd;
         };
+
+        struct {
+            StringBuilder sb;
+        };
     };
 };
 
 #define mkStreamStr(str) ((Stream){ .type = STREAM_STR, .s = (str), .i = 0 })
 #define mkStreamFd(_fd) ((Stream){ .type = STREAM_FD, .fd = (_fd) })
+#define mkStreamSb(_sb) ((Stream){ .type = STREAM_SB, .sb = (_sb) })
 
 typedef struct {
     char peek;
@@ -88,6 +94,9 @@ bool stream_writeChar(Stream *s, char c) {
     }
     else if(s->type == STREAM_FD) {
         write(s->fd, &c, 1);
+    }
+    else if(s->type == STREAM_SB) {
+        sb_appendChar(&s->sb, c);
     }
     else {
         return false;
