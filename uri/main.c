@@ -10,12 +10,11 @@
 void skipTest(PeekStream *s) {
     MaybeChar c;
     while(isJust(c = pstream_peekChar(s)) && c.value != '$') {
-        c = pstream_routeLine(s, null, true);
+        pstream_routeLine(s, null, true);
     }
     c = pstream_routeLine(s, null, true);
 }
 
-#define URIS_COUNT 8
 int main() {
     String testsPath = mkString("./testing-data.txt");
     FILE *testingData = fopen(testsPath.s, "r");
@@ -31,10 +30,9 @@ int main() {
     int detectedValidTests = 0;
     int correctValidTests = 0;
 
-    Alloc resultAlloc = mkAlloc_LinearExpandable();
-    ALLOC_PUSH(resultAlloc);
+    Alloc *resultAlloc = ALLOC_PUSH(mkAlloc_LinearExpandableC(20000));
     while(isJust(c = pstream_peekChar(&tests))) {
-        Reset();
+        ResetC(resultAlloc);
         while(c.value == '\n') { c = pstream_routeLine(&tests, null, true); }
         if(isNone(pstream_peekChar(&tests))) break;
         Stream s;
@@ -50,8 +48,8 @@ int main() {
         pstream_routeLine(&tests, &s, false);
         PeekStream uriStream = mkPeekStream(mkStreamStr(sb_build(sbUri)));
         Uri uri;
-        UseAlloc(mkAlloc_LinearExpandable(), {
-            uri = Uri_parseUri(&uriStream, &resultAlloc);
+        UseAlloc(mkAlloc_LinearExpandableA(resultAlloc), {
+            uri = Uri_parseUri(&uriStream, resultAlloc);
         });
 
         // Test validity

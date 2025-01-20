@@ -20,7 +20,10 @@ struct Alloc {
     void *data;
 };
 
-ptr  malloc_alloc(Alloc *a, usz size) { return calloc(sizeof(byte), size); }
+ptr  malloc_alloc(Alloc *a, usz size) {
+    printf("MALLOC\n");
+    return calloc(sizeof(byte), size);
+}
 void malloc_free(Alloc *a, ptr p) { free(p); }
 void malloc_reset(Alloc *a) {}
 void malloc_kill(Alloc *a) {}
@@ -41,9 +44,10 @@ void ALLOC_POP() {
     ALLOC_INDEX--;
 }
 
-void ALLOC_PUSH(Alloc alloc) {
+Alloc *ALLOC_PUSH(Alloc alloc) {
     ALLOC_INDEX++;
     ALLOC = alloc;
+    return &ALLOC;
 }
 
 #define AllocateBytes(bytes) AllocateBytesC(&ALLOC, (bytes))
@@ -83,6 +87,7 @@ typedef struct {
     usz pageSize;
 
     byte *page;
+    Alloc *alloc;
     usz offset;
 
     ptr lastAlloc;
@@ -92,7 +97,7 @@ typedef struct {
 ptr  LinearExpandable_alloc(Alloc *ap, usz size) {
     Alloc a = *ap;
     Alloc_LinearExpadableData *data = a.data;
-    if(size > data->pageSize) return null; // TODO: figure out what to do here
+    if(size > data->pageSize - sizeof(ptr *)) return null; // TODO: figure out what to do here
 
     if(data->offset + size <= data->pageSize) {
         ptr result = data->page + data->offset;
@@ -102,7 +107,8 @@ ptr  LinearExpandable_alloc(Alloc *ap, usz size) {
         return result;
     }
     else {
-        byte *newPage = AllocateBytesC(ALLOC_GLOBAL, data->pageSize);
+        printf("NEW PAGE\n");
+        byte *newPage = AllocateBytesC(data->alloc, data->pageSize);
         *((ptr *)newPage) = data->page;
         data->page = newPage;
         data->offset = 0 + sizeof(ptr *);
@@ -129,13 +135,18 @@ void LinearExpandable_reset(Alloc *ap) {
     Alloc a = *ap;
     Alloc_LinearExpadableData *data = a.data;
 
-    ptr *next = (ptr *)data->page;
-    while(*next) {
-        ptr toFree = *next;
-        next = *((ptr *)toFree);
-        FreeC(ALLOC_GLOBAL, toFree);
+    ptr current = data->page;
+    while(true) {
+        ptr next = *(ptr *)current;
+        if(!next) break;
+
+        ptr toFree = current;
+        current = next;
+        FreeC(data->alloc, toFree);
     }
 
+    data->page = current;
+    *(ptr *)data->page = 0;
     data->offset = 0 + sizeof(ptr *);
     data->lastAlloc = null;
     data->lastAllocSize = 0;
@@ -143,19 +154,26 @@ void LinearExpandable_reset(Alloc *ap) {
 
 void LinearExpandable_kill(Alloc *a) {
     LinearExpandable_reset(a);
-    FreeC(ALLOC_GLOBAL, (ptr)(a->data));
+    FreeC(((Alloc_LinearExpadableData *)a->data)->alloc, (ptr)(((Alloc_LinearExpadableData *)a->data)->page));
+    FreeC(((Alloc_LinearExpadableData *)a->data)->alloc, (ptr)(a->data));
 }
 
-#define mkAlloc_LinearExpandable() mkAlloc_LinearExpandable_Cap(8192)
-Alloc mkAlloc_LinearExpandable_Cap(usz page) {
+#define mkAlloc_LinearExpandable() mkAlloc_LinearExpandableAC(ALLOC_GLOBAL, 8192)
+#define mkAlloc_LinearExpandableA(alloc) mkAlloc_LinearExpandableAC((alloc), 8192)
+#define mkAlloc_LinearExpandableC(size) mkAlloc_LinearExpandableAC(ALLOC_GLOBAL, (size))
+Alloc mkAlloc_LinearExpandableAC(Alloc *alloc, usz pageSize) {
     Alloc_LinearExpadableData data = {
-        .pageSize = page,
-        .page = AllocateBytesC(ALLOC_GLOBAL, page),
+        .pageSize = pageSize,
+        .page = AllocateBytesC(alloc, pageSize),
+        .alloc = alloc,
         .offset = 0 + sizeof(ptr *),
         .lastAlloc = null,
         .lastAllocSize = 0
     };
-    Alloc_LinearExpadableData *pdata = AllocateBytesC(ALLOC_GLOBAL, sizeof(Alloc_LinearExpadableData));
+
+    *(ptr *)data.page = null;
+
+    Alloc_LinearExpadableData *pdata = AllocateBytesC(alloc, sizeof(Alloc_LinearExpadableData));
     *pdata = data;
 
     return (Alloc){
