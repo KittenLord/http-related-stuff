@@ -15,6 +15,7 @@ typedef u8 StreamType;
 #define STREAM_FILE 3
 #define STREAM_SB 4
 #define STREAM_NULL 5
+#define STREAM_BUF 6
 typedef struct Stream Stream;
 struct Stream {
     StreamType type;
@@ -38,6 +39,14 @@ struct Stream {
         struct {
             StringBuilder *sb;
         };
+
+        struct {
+            Stream *bufbase;
+            byte *buf;
+            usz ibuf;
+            usz cbuf;
+            usz maxbuf;
+        };
     };
 };
 
@@ -45,6 +54,7 @@ struct Stream {
 #define mkStreamFd(_fd) ((Stream){ .type = STREAM_FD, .fd = (_fd) })
 #define mkStreamSb(_sb) ((Stream){ .type = STREAM_SB, .sb = (_sb) })
 #define mkStreamNull() ((Stream){ .type = STREAM_NULL })
+#define mkStreamBuf(base, size) ((Stream){ .type = STREAM_BUF, .bufbase = (base), .buf = AllocateBytes((size)), .ibuf = 0, .cbuf = 0, .maxbuf = (size) })
 
 typedef struct {
     char peek;
@@ -66,6 +76,9 @@ typedef struct {
     u64 errmsg;
 } MaybeChar;
 
+bool stream_writeChar(Stream *s, char c);
+usz stream_popChars(byte *dst, Stream *src, usz n);
+
 MaybeChar stream_popChar(Stream *s) {
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return none(MaybeChar);
@@ -83,8 +96,47 @@ MaybeChar stream_popChar(Stream *s) {
         if(result <= 0) return fail(MaybeChar, CHAR_ERROR);
         return just(MaybeChar, c);
     }
+    else if(s->type == STREAM_BUF) {
+        if(s->ibuf < s->cbuf) {
+            return just(MaybeChar, s->buf[s->ibuf++]);
+        }
+
+        s->cbuf = stream_popChars(s->buf, s->bufbase, s->maxbuf);
+        s->ibuf = 0;
+        if(s->cbuf == 0) return fail(MaybeChar, CHAR_EOF);
+        return just(MaybeChar, s->buf[s->ibuf++]);
+    }
     else {
         return fail(MaybeChar, CHAR_ERROR);
+    }
+}
+
+usz stream_popChars(byte *dst, Stream *src, usz n) {
+    usz o = n;
+    if(src->type == STREAM_FD) {
+        return read(src->fd, dst, n);
+    }
+    else {
+        MaybeChar c;
+        while(n-- && 
+              isJust(c = stream_popChar(src))) {
+            *dst = c.value;
+            dst++;
+        }
+        return o - n - 1;
+    }
+}
+usz stream_writeChars(Stream *dst, byte *src, usz n) {
+    usz o = n;
+    if(dst->type == STREAM_FD) {
+        return write(dst->fd, src, n);
+    }
+    else {
+        while(n-- && 
+              stream_writeChar(dst, *src)) {
+            src++;
+        }
+        return o - n - 1;
     }
 }
 

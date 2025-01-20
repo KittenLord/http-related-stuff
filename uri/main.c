@@ -20,7 +20,8 @@ int main() {
     FILE *testingData = fopen(testsPath.s, "r");
     if(!testingData) { printf("bad\n"); return 1; }
     int fd = fileno(testingData);
-    PeekStream tests = mkPeekStream(mkStreamFd(fd));
+    Stream fds = mkStreamFd(fd);
+    PeekStream tests = mkPeekStream(mkStreamBuf(&fds, 1024));
     MaybeChar c;
 
     int totalInvalidTests = 0;
@@ -30,7 +31,7 @@ int main() {
     int detectedValidTests = 0;
     int correctValidTests = 0;
 
-    Alloc *resultAlloc = ALLOC_PUSH(mkAlloc_LinearExpandableC(20000));
+    Alloc *resultAlloc = ALLOC_PUSH(mkAlloc_LinearExpandableC(16000));
     while(isJust(c = pstream_peekChar(&tests))) {
         ResetC(resultAlloc);
         while(c.value == '\n') { c = pstream_routeLine(&tests, null, true); }
