@@ -65,6 +65,23 @@ bool sb_appendChar(StringBuilder *sb, char c) {
     return true;
 }
 
+void sb_reset(StringBuilder *sb) {
+    if(!sb) return;
+    if(!sb->s) return;
+    sb->len = 0;
+    for(int i = 0; i < sb->cap; i++) {
+        sb->s[i] = 0x00;
+    }
+}
+
+bool sb_appendString(StringBuilder *sb, String str) {
+    bool result = true;
+    for(int i = 0; i < str.len; i++) {
+        result = result && sb_appendChar(sb, str.s[i]);
+    }
+    return result;
+}
+
 bool sb_appendRune(StringBuilder *sb, rune r) {
     // NOTE: this will only work on little endian lmao
     char *data = (char *)&r;

@@ -14,6 +14,7 @@ typedef u8 StreamType;
 #define STREAM_FD 2
 #define STREAM_FILE 3
 #define STREAM_SB 4
+#define STREAM_NULL 5
 typedef struct Stream Stream;
 struct Stream {
     StreamType type;
@@ -35,7 +36,7 @@ struct Stream {
         };
 
         struct {
-            StringBuilder sb;
+            StringBuilder *sb;
         };
     };
 };
@@ -43,6 +44,7 @@ struct Stream {
 #define mkStreamStr(str) ((Stream){ .type = STREAM_STR, .s = (str), .i = 0 })
 #define mkStreamFd(_fd) ((Stream){ .type = STREAM_FD, .fd = (_fd) })
 #define mkStreamSb(_sb) ((Stream){ .type = STREAM_SB, .sb = (_sb) })
+#define mkStreamNull() ((Stream){ .type = STREAM_NULL })
 
 typedef struct {
     char peek;
@@ -87,6 +89,7 @@ MaybeChar stream_popChar(Stream *s) {
 }
 
 bool stream_writeChar(Stream *s, char c) {
+    if(!s) return false;
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return false;
         s->s.s[s->i++] = c;
@@ -96,7 +99,10 @@ bool stream_writeChar(Stream *s, char c) {
         write(s->fd, &c, 1);
     }
     else if(s->type == STREAM_SB) {
-        sb_appendChar(&s->sb, c);
+        sb_appendChar(s->sb, c);
+    }
+    else if(s->type == STREAM_NULL) {
+        return true;
     }
     else {
         return false;
@@ -172,6 +178,25 @@ MaybeRune pstream_peekRune(PeekStream *s) {
 MaybeRune pstream_popRune(PeekStream *s) {
     if(s->peekAvailable) { s->peekAvailable = false; return just(MaybeRune, s->peekRune); }
     return stream_popRune(&s->s);
+}
+
+MaybeChar pstream_routeUntil(PeekStream *s, Stream *out, char target, bool includeInResult, bool consumeLast) {
+    MaybeChar c;
+    while(isJust(c = pstream_peekChar(s)) && c.value != target) {
+        pstream_popRune(s);
+        stream_writeChar(out, c.value);
+    }
+
+    if(consumeLast) pstream_popChar(s);
+    if(consumeLast && includeInResult) stream_writeChar(out, c.value);
+    c = pstream_peekChar(s);
+    return c;
+}
+
+MaybeChar pstream_routeLine(PeekStream *s, Stream *out, bool includeNewLine) {
+    pstream_routeUntil(s, out, '\n', includeNewLine, true);
+    MaybeChar c = pstream_peekChar(s);
+    return c;
 }
 
 #endif // __LIB_STREAM
