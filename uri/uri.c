@@ -167,6 +167,13 @@ bool Uri_isHexdigit(byte c) {
     c >= 'A' && c <= 'F' ;
 }
 
+bool Uri_getHexDigitValue(byte c) {
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+}
+
 byte Uri_normalizePercentByte(byte c) {
     if(c >= 'a' && c <= 'f') return c - 'a' + 'A';
     return c;
@@ -197,6 +204,29 @@ bool Uri_isPcharRaw(byte c, String extra) {
 
 bool Uri_isPchar(byte c) {
     return Uri_isPcharRaw(c, mkString("@:"));
+}
+
+String Uri_ipv4ToString(UriIpv4 ip, Alloc *alloc) {
+    StringBuilder sb = mkStringBuilderCap(16);
+    sb.alloc = alloc;
+
+    byte *arr[] = { &ip.a, &ip.b, &ip.c, &ip.d };
+    for(int i = 0; i < 4; i++) {
+        byte current = *(arr[i]);
+        bool metNonZero = false;
+
+        for(int div = 100; div > 0; div /= 10) {
+            byte digit = current / div;
+            current -= div * digit;
+            if(metNonZero || div == 1 || digit != 0) metNonZero = true;
+            if(digit == 0 && !metNonZero) continue;
+            sb_appendChar(&sb, digit + '0');
+        }
+
+        if(i != 3) { sb_appendChar(&sb, '.'); }
+    }
+
+    return sb_build(sb);
 }
 
 MaybeString Uri_parseScheme(PeekStream *s, Alloc *alloc) {
@@ -243,15 +273,24 @@ MaybeString Uri_parsePcharRaw(PeekStream *s, Alloc *alloc, bool lowercase, Strin
 
     pstream_popChar(s);
 
-    c = pstream_peekChar(s);
-    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
-    sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
-    pstream_popChar(s);
+    byte p = 0;
 
     c = pstream_peekChar(s);
     if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
     sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
     pstream_popChar(s);
+    p += 16*Uri_getHexDigitValue(c.value);
+
+    c = pstream_peekChar(s);
+    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
+    sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
+    pstream_popChar(s);
+    p += 1*Uri_getHexDigitValue(c.value);
+
+    if(p != '%' && Uri_isPcharRaw(p, extra)) {
+        sb_reset(&sb);
+        sb_appendChar(&sb, p);
+    }
 
     return just(MaybeString, sb_build(sb));
 }
@@ -361,6 +400,7 @@ UriHost Uri_parseHostIpv4(PeekStream *s) {
             if(acc >= u8decmax) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
             acc *= 10;
             acc += c.value - '0';
+            pstream_popChar(s);
         }
 
         if(i != 3) {
@@ -424,7 +464,6 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     MaybeChar c;
     while(isJust(c = pstream_peekChar(s)) && c.value != '/' && c.value != '?' && c.value != '#' && c.value != '@') {
         sb_appendChar(&buffer, c.value);
-        sb_appendChar(&userInfo, c.value);
         pstream_popChar(s);
     }
 
@@ -432,7 +471,15 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
         // TODO: validate percent-encodings
         pstream_popChar(s);
         authority.hasUserInfo = true;
-        authority.userInfo = sb_build(userInfo);
+
+        PeekStream ps = mkPeekStream(mkStreamStr(sb_build(buffer)));
+        MaybeString userInfo = Uri_parsePcharRawString(&ps, alloc, false, mkString(":"));
+
+        if(isNone(userInfo)) {
+            return fail(UriAuthority, mkString("Invalid percent encoding" DEBUG_LOC));
+        }
+
+        authority.userInfo = userInfo.value;
     }
     else {
         // Userinfo has not been detected, so we replace the stream
@@ -453,6 +500,7 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
 
     // TODO: parse port
 
+    authority.hasPort = true;
     StringBuilder portsb = mkStringBuilderCap(16);
     bool portOverflow = false;
     u64 port = 0;
@@ -581,7 +629,10 @@ Uri Uri_parseUri(PeekStream *s, Alloc *alloc) {
     }
 
     c = pstream_peekChar(s);
-    if(!isNone(c)) return fail(Uri, mkString("Unexpected character at the end of the URI" DEBUG_LOC));
+    if(!isNone(c)) {
+        printf("UNEXPECTED CHARACTER: %x\n", c.value);
+        return fail(Uri, mkString("Unexpected character at the end of the URI" DEBUG_LOC));
+    }
 
     return uri;
 }
