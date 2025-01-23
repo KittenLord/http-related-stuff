@@ -76,13 +76,13 @@ MaybeRune stream_popRune(Stream *s);
 bool stream_writeChar(Stream *s, char c);
 bool stream_writeRune(Stream *s, rune r);
 
-usz stream_popChars(byte *dst, Stream *src, usz n);
-usz stream_writeChars(Stream *dst, byte *src, usz n);
-
 void stream_goBackOnePos(Stream *s);
 
 MaybeChar stream_peekChar(Stream *s);
 MaybeRune stream_peekRune(Stream *s);
+
+usz stream_popChars(byte *dst, Stream *src, usz n);
+usz stream_writeChars(Stream *dst, byte *src, usz n);
 
 MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast);
 MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine);
@@ -182,6 +182,45 @@ bool stream_writeRune(Stream *s, rune r) {
     return true;
 }
 
+void stream_goBackOnePos(Stream *s) {
+    if(s->col > 0) { s->col--; }
+    else { s->row--; s->col = s->lastCol; }
+}
+
+MaybeChar stream_peekChar(Stream *s) {
+    if(s->hasPeek) return just(MaybeChar, s->peekChar);
+    MaybeChar c = stream_popChar(s);
+    if(isNone(c)) return c;
+    s->peekChar = c.value;
+    s->hasPeek = true;
+    return c;
+}
+
+MaybeRune stream_peekRune(Stream *s) {
+    if(s->hasPeek) return just(MaybeRune, s->peekRune);
+    MaybeRune r = stream_popRune(s);
+    if(isNone(r)) return r;
+    s->peekRune = r.value;
+    s->hasPeek = true;
+    return r;
+}
+
+// TODO: I'm not sure this is a good API - I think of smth
+// like this:
+//
+// Stream sin, sout
+// usz amount
+// buffin = getBuffIn(sin, amount)
+// buffout = getBuffOut(sout, amount)
+// if(buffin && buffout)    memcpy(buffout, buffin, amount)
+// else if(buffin)          writeChars(sout, buffin, amount)
+// else if(buffout)         popChars(buffout, sin, amount)
+// else                     // manual while loop
+//
+// of course, this needs to account for getBuffIn and
+// getBuffOut routines not being able to provide the buffer
+// of the required size
+
 usz stream_popChars(byte *dst, Stream *src, usz n) {
     usz o = n;
     if(src->type == STREAM_FD) {
@@ -210,29 +249,6 @@ usz stream_writeChars(Stream *dst, byte *src, usz n) {
         }
         return o - n - 1;
     }
-}
-
-void stream_goBackOnePos(Stream *s) {
-    if(s->col > 0) { s->col--; }
-    else { s->row--; s->col = s->lastCol; }
-}
-
-MaybeChar stream_peekChar(Stream *s) {
-    if(s->hasPeek) return just(MaybeChar, s->peekChar);
-    MaybeChar c = stream_popChar(s);
-    if(isNone(c)) return c;
-    s->peekChar = c.value;
-    s->hasPeek = true;
-    return c;
-}
-
-MaybeRune stream_peekRune(Stream *s) {
-    if(s->hasPeek) return just(MaybeRune, s->peekRune);
-    MaybeRune r = stream_popRune(s);
-    if(isNone(r)) return r;
-    s->peekRune = r.value;
-    s->hasPeek = true;
-    return r;
 }
 
 MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast) {
