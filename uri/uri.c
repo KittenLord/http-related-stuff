@@ -229,7 +229,7 @@ String Uri_ipv4ToString(UriIpv4 ip, Alloc *alloc) {
     return sb_build(sb);
 }
 
-MaybeString Uri_parseScheme(PeekStream *s, Alloc *alloc) {
+MaybeString Uri_parseScheme(Stream *s, Alloc *alloc) {
     // TODO: figure out a good approach to this
     static String error_failedToReadChar = mkString("Failed to read a character" DEBUG_LOC);
     static String error_firstCharAlpha = mkString("First character of the scheme must be a letter" DEBUG_LOC);
@@ -237,25 +237,25 @@ MaybeString Uri_parseScheme(PeekStream *s, Alloc *alloc) {
     StringBuilder sb = mkStringBuilderCap(16);
     sb.alloc = alloc;
 
-    MaybeChar c = pstream_peekChar(s);
+    MaybeChar c = stream_peekChar(s);
 
     if(isNone(c)) return fail(MaybeString, (u64)&error_failedToReadChar);
     if(isJust(c) && !Uri_isAlpha(c.value)) return fail(MaybeString, (u64)&error_firstCharAlpha);
 
     sb_appendChar(&sb, c.value);
-    pstream_popChar(s);
+    stream_popChar(s);
 
-    while(isJust(c = pstream_peekChar(s)) && Uri_isSchemeChar(c.value)) {
+    while(isJust(c = stream_peekChar(s)) && Uri_isSchemeChar(c.value)) {
         sb_appendChar(&sb, c.value);
-        pstream_popChar(s);
+        stream_popChar(s);
     }
 
     return just(MaybeString, sb_build(sb));
 }
 
 #define PCHAR_INVALID_PERCENT_ENCODING 1
-MaybeString Uri_parsePcharRaw(PeekStream *s, Alloc *alloc, bool lowercase, String extra) {
-    MaybeChar c = pstream_peekChar(s);
+MaybeString Uri_parsePcharRaw(Stream *s, Alloc *alloc, bool lowercase, String extra) {
+    MaybeChar c = stream_peekChar(s);
     if(isNone(c)) return none(MaybeString);
 
     StringBuilder sb = mkStringBuilderCap(3);
@@ -265,26 +265,26 @@ MaybeString Uri_parsePcharRaw(PeekStream *s, Alloc *alloc, bool lowercase, Strin
 
 
     if(c.value != '%' && Uri_isPcharRaw(c.value, extra)) {
-        pstream_popChar(s);
+        stream_popChar(s);
         return just(MaybeString, sb_build(sb));
     }
 
     if(c.value != '%') return none(MaybeString);
 
-    pstream_popChar(s);
+    stream_popChar(s);
 
     byte p = 0;
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
     sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
-    pstream_popChar(s);
+    stream_popChar(s);
     p += 16*Uri_getHexDigitValue(c.value);
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
     sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
-    pstream_popChar(s);
+    stream_popChar(s);
     p += 1*Uri_getHexDigitValue(c.value);
 
     if(p != '%' && Uri_isPcharRaw(p, extra)) {
@@ -297,11 +297,11 @@ MaybeString Uri_parsePcharRaw(PeekStream *s, Alloc *alloc, bool lowercase, Strin
 
 #define Uri_parsePchar(s, alloc, low) Uri_parsePcharRaw((s), (alloc), (low), mkString("@:"))
 
-MaybeString Uri_parsePcharRawString(PeekStream *s, Alloc *alloc, bool lowercase, String extra) {
+MaybeString Uri_parsePcharRawString(Stream *s, Alloc *alloc, bool lowercase, String extra) {
     StringBuilder sb = mkStringBuilderCap(64);
     sb.alloc = alloc;
 
-    MaybeChar c = pstream_peekChar(s);
+    MaybeChar c = stream_peekChar(s);
     while(isJust(c) && Uri_isPcharRaw(c.value, extra)) {
         MaybeString pchar = Uri_parsePcharRaw(s, alloc, lowercase, extra);
         if(isFail(pchar, PCHAR_INVALID_PERCENT_ENCODING)) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
@@ -321,12 +321,12 @@ MaybeString Uri_parsePcharRawString(PeekStream *s, Alloc *alloc, bool lowercase,
 
 #define SEGMENT_NO_COLON 1
 #define SEGMENT_NON_ZERO 2
-UriPathSegment Uri_parsePathSegment(PeekStream *s, Alloc *alloc, bool nonZero, bool noColon) {
+UriPathSegment Uri_parsePathSegment(Stream *s, Alloc *alloc, bool nonZero, bool noColon) {
     MaybeString str = noColon ? Uri_parsePcharRawString(s, alloc, false, mkString("@")) : Uri_parsePcharString(s, alloc, false);
     if(isNone(str)) return fail(UriPathSegment, str.errmsg);
 
     if(noColon) {
-        MaybeChar c = pstream_peekChar(s);
+        MaybeChar c = stream_peekChar(s);
         if(isJust(c) && c.value == ':') return fail(UriPathSegment, SEGMENT_NO_COLON);
     }
 
@@ -336,13 +336,13 @@ UriPathSegment Uri_parsePathSegment(PeekStream *s, Alloc *alloc, bool nonZero, b
     return segment;
 }
 
-UriPath Uri_parsePathAbempty(PeekStream *s, Alloc *alloc) {
+UriPath Uri_parsePathAbempty(Stream *s, Alloc *alloc) {
     UriPath path = {0};
     UriPathSegment *last = null;
 
     MaybeChar c;
-    while(isJust(c = pstream_peekChar(s)) && c.value == '/') {
-        pstream_popChar(s);
+    while(isJust(c = stream_peekChar(s)) && c.value == '/') {
+        stream_popChar(s);
 
         AllocateVarC(UriPathSegment, segment, Uri_parsePathSegment(s, alloc, false, false), alloc);
         if(isFail(*segment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriPath, mkString("Invalid percent encoding" DEBUG_LOC));
@@ -361,7 +361,7 @@ UriPath Uri_parsePathAbempty(PeekStream *s, Alloc *alloc) {
     return path;
 }
 
-UriPath Uri_parsePathRootlessOrNoscheme(PeekStream *s, Alloc *alloc, bool noColon) {
+UriPath Uri_parsePathRootlessOrNoscheme(Stream *s, Alloc *alloc, bool noColon) {
     AllocateVarC(UriPathSegment, initSegment, Uri_parsePathSegment(s, alloc, true, noColon), alloc);
     if(isNone(*initSegment)) return fail(UriPath, mkString("The first segment of a rootless path cannot be empty" DEBUG_LOC));
 
@@ -374,38 +374,38 @@ UriPath Uri_parsePathRootlessOrNoscheme(PeekStream *s, Alloc *alloc, bool noColo
     return rest;
 }
 
-UriPath Uri_parsePathRootless(PeekStream *s, Alloc *alloc) {
+UriPath Uri_parsePathRootless(Stream *s, Alloc *alloc) {
     UriPath path = Uri_parsePathRootlessOrNoscheme(s, alloc, false);
     path.type = URI_PATH_ROOTLESS;
     return path;
 }
 
-UriPath Uri_parsePathNoscheme(PeekStream *s, Alloc *alloc) {
+UriPath Uri_parsePathNoscheme(Stream *s, Alloc *alloc) {
     UriPath path = Uri_parsePathRootlessOrNoscheme(s, alloc, true);
     path.type = URI_PATH_NOSCHEME;
     return path;
 }
 
-UriHost Uri_parseHostIpLiteral(PeekStream *s, Alloc *alloc) {
+UriHost Uri_parseHostIpLiteral(Stream *s, Alloc *alloc) {
     // TODO: implement
     return fail(UriHost, mkString("Non IPv4 IP literal parsing is not implemented yet" DEBUG_LOC));
 }
 
-UriHost Uri_parseHostIpv4(PeekStream *s) {
+UriHost Uri_parseHostIpv4(Stream *s) {
     u8 values[4] = {0};
     MaybeChar c;
     for(int i = 0; i < 4; i++) {
         u8 acc = 0;
-        while(isJust(c = pstream_peekChar(s)) && Uri_isDigit(c.value)) {
+        while(isJust(c = stream_peekChar(s)) && Uri_isDigit(c.value)) {
             if(acc >= u8decmax) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
             acc *= 10;
             acc += c.value - '0';
-            pstream_popChar(s);
+            stream_popChar(s);
         }
 
         if(i != 3) {
             if(isNone(c) || (isJust(c) && c.value != '.')) return fail(UriHost, mkString("IPv4 format requires periods '.' between each number" DEBUG_LOC));
-            pstream_popChar(s);
+            stream_popChar(s);
         }
 
         values[i] = acc;
@@ -415,23 +415,23 @@ UriHost Uri_parseHostIpv4(PeekStream *s) {
     return host;
 }
 
-UriHost Uri_parseHost(PeekStream *s, Alloc *alloc) {
-    MaybeChar c = pstream_peekChar(s);
+UriHost Uri_parseHost(Stream *s, Alloc *alloc) {
+    MaybeChar c = stream_peekChar(s);
     if(isJust(c) && c.value == '[') return Uri_parseHostIpLiteral(s, alloc);
 
     StringBuilder buffer = mkStringBuilderCap(64);
     buffer.alloc = alloc;
 
-    while(isJust(c = pstream_peekChar(s)) && c.value != ':' && c.value != '/' && c.value != '?' && c.value != '#') {
-        pstream_popChar(s);
+    while(isJust(c = stream_peekChar(s)) && c.value != ':' && c.value != '/' && c.value != '?' && c.value != '#') {
+        stream_popChar(s);
         sb_appendChar(&buffer, c.value);
     }
 
-    PeekStream ipv4Stream = mkPeekStream(mkStreamStr(sb_build(buffer)));
+    Stream ipv4Stream = mkStreamStr(sb_build(buffer));
     UriHost ipv4Host = Uri_parseHostIpv4(&ipv4Stream);
     if(isJust(ipv4Host)) return ipv4Host;
 
-    PeekStream regNameStream = mkPeekStream(mkStreamStr(sb_build(buffer)));
+    Stream regNameStream = mkStreamStr(sb_build(buffer));
     MaybeString regName = Uri_parsePcharRawString(&regNameStream, alloc, true, mkString(""));
     if(isFail(regName, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriHost, mkString("Invalid percent encoding" DEBUG_LOC));
     if(isNone(regName)) return fail(UriHost, mkString("This shouldn't happen" DEBUG_LOC));
@@ -441,7 +441,7 @@ UriHost Uri_parseHost(PeekStream *s, Alloc *alloc) {
     return host;
 }
 
-UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
+UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
     // NOTE: The URI spec is so good, that it seems to be impossible
     // to unambiguously detect the userinfo component, delimited by '@'.
     // So this is how I'll do it - read the whole authority (delimited
@@ -462,17 +462,17 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     StringBuilder buffer = mkStringBuilderCap(64);
 
     MaybeChar c;
-    while(isJust(c = pstream_peekChar(s)) && c.value != '/' && c.value != '?' && c.value != '#' && c.value != '@') {
+    while(isJust(c = stream_peekChar(s)) && c.value != '/' && c.value != '?' && c.value != '#' && c.value != '@') {
         sb_appendChar(&buffer, c.value);
-        pstream_popChar(s);
+        stream_popChar(s);
     }
 
     if(isJust(c) && c.value == '@') {
         // TODO: validate percent-encodings
-        pstream_popChar(s);
+        stream_popChar(s);
         authority.hasUserInfo = true;
 
-        PeekStream ps = mkPeekStream(mkStreamStr(sb_build(buffer)));
+        Stream ps = mkStreamStr(sb_build(buffer));
         MaybeString userInfo = Uri_parsePcharRawString(&ps, alloc, false, mkString(":"));
 
         if(isNone(userInfo)) {
@@ -485,7 +485,7 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
         // Userinfo has not been detected, so we replace the stream
         // with the buffer that we have accumulated
         String authorityWithoutUserinfo = sb_build(buffer);
-        PeekStream newStream = mkPeekStream(mkStreamStr(authorityWithoutUserinfo));
+        Stream newStream = mkStreamStr(authorityWithoutUserinfo);
         s = &newStream;
     }
 
@@ -493,10 +493,10 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     if(isNone(host)) return fail(UriAuthority, host.errmsg);
     authority.host = host;
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(isNone(c)) return authority;
     if(isJust(c) && c.value != ':') return authority;
-    pstream_popChar(s);
+    stream_popChar(s);
 
     // TODO: parse port
 
@@ -505,8 +505,8 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     bool portOverflow = false;
     u64 port = 0;
 
-    while(isJust(c = pstream_peekChar(s)) && Uri_isDigit(c.value)) {
-        pstream_popChar(s);
+    while(isJust(c = stream_peekChar(s)) && Uri_isDigit(c.value)) {
+        stream_popChar(s);
 
         if(port >= u64decmax) {
             portOverflow = true;
@@ -526,17 +526,17 @@ UriAuthority Uri_parseAuthority(PeekStream *s, Alloc *alloc) {
     return authority;
 }
 
-UriHierarchyPart Uri_parseHier(PeekStream *s, Alloc *alloc) {
+UriHierarchyPart Uri_parseHier(Stream *s, Alloc *alloc) {
     UriHierarchyPart hier = {0};
     hier.hasPath = true;
-    MaybeChar c = pstream_peekChar(s);
+    MaybeChar c = stream_peekChar(s);
     if(isJust(c) && c.value == '/') {
         // NOTE: because we pop the '/' even if the path is absolute, we will be parsing the path as if it were a rootless path (or an empty one)
-        pstream_popChar(s);
-        c = pstream_peekChar(s);
+        stream_popChar(s);
+        c = stream_peekChar(s);
         if(isJust(c) && c.value == '/') {
             // parse authority
-            pstream_popChar(s);
+            stream_popChar(s);
             hier.type = URI_HIER_AUTHORITY;
             hier.hasAuthority = true;
 
@@ -593,7 +593,7 @@ UriHierarchyPart Uri_parseHier(PeekStream *s, Alloc *alloc) {
     return fail(UriHierarchyPart, mkString("Unreachable" DEBUG_LOC));
 }
 
-Uri Uri_parseUri(PeekStream *s, Alloc *alloc) {
+Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     Uri uri = {0};
 
     MaybeString scheme = Uri_parseScheme(s, alloc);
@@ -601,34 +601,34 @@ Uri Uri_parseUri(PeekStream *s, Alloc *alloc) {
     Uri_lowercase(&scheme.value);
     uri.scheme = scheme.value;
 
-    MaybeChar c = pstream_peekChar(s);
+    MaybeChar c = stream_peekChar(s);
     if(isNone(c)) return fail(Uri, mkString("Failed to read a character" DEBUG_LOC));
     if(isJust(c) && c.value != ':') return fail(Uri, mkString("A colon ':' is missing after the scheme" DEBUG_LOC));
-    pstream_popChar(s);
+    stream_popChar(s);
 
     UriHierarchyPart hier = Uri_parseHier(s, alloc);
     if(isNone(hier)) return fail(Uri, hier.errmsg);
     uri.hierarchyPart = hier;
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(isJust(c) && c.value == '?') {
-        pstream_popChar(s);
+        stream_popChar(s);
         MaybeString query = Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
         if(isFail(query, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
         if(isNone(query)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
         uri.query = query.value;
     }
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(isJust(c) && c.value == '#') {
-        pstream_popChar(s);
+        stream_popChar(s);
         MaybeString fragment = Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
         if(isFail(fragment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
         if(isNone(fragment)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
         uri.fragment = fragment.value;
     }
 
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     if(!isNone(c)) {
         printf("UNEXPECTED CHARACTER: %x\n", c.value);
         return fail(Uri, mkString("Unexpected character at the end of the URI" DEBUG_LOC));

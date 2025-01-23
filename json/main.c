@@ -6,7 +6,7 @@
 #include "json.c"
 
 int main() {
-    PeekStream s = mkPeekStream(mkStreamStr(mkString("-9223372036854775807")));
+    Stream s = mkStreamStr(mkString("-9223372036854775807"));
 
     JsonValue value;
     Alloc resultAlloc = mkAlloc_LinearExpandable();

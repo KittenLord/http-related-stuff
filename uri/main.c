@@ -7,12 +7,12 @@
 #include <alloc.h>
 #include "uri.c"
 
-void skipTest(PeekStream *s) {
+void skipTest(Stream *s) {
     MaybeChar c;
-    while(isJust(c = pstream_peekChar(s)) && c.value != '$') {
-        pstream_routeLine(s, null, true);
+    while(isJust(c = stream_peekChar(s)) && c.value != '$') {
+        stream_routeLine(s, null, true);
     }
-    c = pstream_routeLine(s, null, true);
+    c = stream_routeLine(s, null, true);
 }
 
 int main() {
@@ -20,8 +20,7 @@ int main() {
     FILE *testingData = fopen(testsPath.s, "r");
     if(!testingData) { printf("bad\n"); return 1; }
     int fd = fileno(testingData);
-    Stream fds = mkStreamFd(fd);
-    PeekStream tests = mkPeekStream(mkStreamBuf(&fds, 1024));
+    Stream tests = mkStreamFd(fd);
     MaybeChar c;
 
     int totalInvalidTests = 0;
@@ -32,22 +31,22 @@ int main() {
     int correctValidTests = 0;
 
     Alloc *resultAlloc = ALLOC_PUSH(mkAlloc_LinearExpandableC(16000));
-    while(isJust(c = pstream_peekChar(&tests))) {
+    while(isJust(c = stream_peekChar(&tests))) {
         ResetC(resultAlloc);
-        while(c.value == '\n') { c = pstream_routeLine(&tests, null, true); }
-        if(isNone(pstream_peekChar(&tests))) break;
+        while(c.value == '\n') { c = stream_routeLine(&tests, null, true); }
+        if(isNone(stream_peekChar(&tests))) break;
         Stream s;
 
         // Consume title
         StringBuilder sbTitle = mkStringBuilder();
         s = mkStreamSb(&sbTitle);
-        pstream_routeLine(&tests, &s, false);
+        stream_routeLine(&tests, &s, false);
 
         // Consume URI
         StringBuilder sbUri = mkStringBuilder();
         s = mkStreamSb(&sbUri);
-        pstream_routeLine(&tests, &s, false);
-        PeekStream uriStream = mkPeekStream(mkStreamStr(sb_build(sbUri)));
+        stream_routeLine(&tests, &s, false);
+        Stream uriStream =mkStreamStr(sb_build(sbUri));
         Uri uri;
         UseAlloc(mkAlloc_LinearExpandableA(resultAlloc), {
             uri = Uri_parseUri(&uriStream, resultAlloc);
@@ -56,12 +55,12 @@ int main() {
         // Test validity
         StringBuilder sbTemp = mkStringBuilder();
         s = mkStreamSb(&sbTemp);
-        pstream_routeLine(&tests, &s, false);
+        stream_routeLine(&tests, &s, false);
         bool isValid = str_equal(sb_build(sbTemp), mkString("VALID"));
         if(isValid) totalValidTests++;
         if(!isValid) {
             totalInvalidTests++;
-            pstream_routeLine(&tests, null, true); // consume the $ line
+            stream_routeLine(&tests, null, true); // consume the $ line
             if(uri.error) { 
                 detectedInvalidTests++;
             }
@@ -88,7 +87,7 @@ int main() {
 
         // Check scheme
         sb_reset(&sbTemp);
-        pstream_routeLine(&tests, &s, false);
+        stream_routeLine(&tests, &s, false);
         sb_appendString(&sbComp, mkString("Scheme: "));
         sb_appendString(&sbComp, uri.scheme);
         if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
@@ -112,7 +111,7 @@ int main() {
 
                 if(authority.hasUserInfo) {
                     sb_reset(&sbTemp);
-                    pstream_routeLine(&tests, &s, false);
+                    stream_routeLine(&tests, &s, false);
                     sb_reset(&sbComp);
                     sb_appendString(&sbComp, mkString("Userinfo: "));
                     sb_appendString(&sbComp, authority.userInfo);
@@ -129,7 +128,7 @@ int main() {
 
 
                 sb_reset(&sbTemp);
-                pstream_routeLine(&tests, &s, false);
+                stream_routeLine(&tests, &s, false);
                 sb_reset(&sbComp);
                 sb_appendString(&sbComp, mkString("Host: "));
 
@@ -164,7 +163,7 @@ int main() {
 
                 if(authority.hasPort) {
                     sb_reset(&sbTemp);
-                    pstream_routeLine(&tests, &s, false);
+                    stream_routeLine(&tests, &s, false);
                     sb_reset(&sbComp);
                     sb_appendString(&sbComp, mkString("Port: "));
                     sb_appendString(&sbComp, authority.portString);
@@ -186,7 +185,7 @@ int main() {
             bool pathError = false;
             while(current) {
                 sb_reset(&sbTemp);
-                pstream_routeLine(&tests, &s, false);
+                stream_routeLine(&tests, &s, false);
                 sb_reset(&sbComp);
                 sb_appendString(&sbComp, mkString("Path: "));
                 sb_appendString(&sbComp, current->segment);
@@ -215,7 +214,7 @@ int main() {
 
         if(uri.hasQuery) {
             sb_reset(&sbTemp);
-            pstream_routeLine(&tests, &s, false);
+            stream_routeLine(&tests, &s, false);
             sb_reset(&sbComp);
             sb_appendString(&sbComp, mkString("Query: "));
             sb_appendString(&sbComp, uri.query);
@@ -228,7 +227,7 @@ int main() {
 
         if(uri.hasFragment) {
             sb_reset(&sbTemp);
-            pstream_routeLine(&tests, &s, false);
+            stream_routeLine(&tests, &s, false);
             sb_reset(&sbComp);
             sb_appendString(&sbComp, mkString("Fragment: "));
             sb_appendString(&sbComp, uri.fragment);

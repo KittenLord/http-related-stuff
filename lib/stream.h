@@ -20,6 +20,10 @@ typedef struct Stream Stream;
 struct Stream {
     StreamType type;
 
+    bool hasPeek;
+    char peekChar;
+    rune peekRune;
+
     usz pos;
     usz col;
     usz row;
@@ -56,17 +60,6 @@ struct Stream {
 #define mkStreamNull() ((Stream){ .type = STREAM_NULL })
 #define mkStreamBuf(base, size) ((Stream){ .type = STREAM_BUF, .bufbase = (base), .buf = AllocateBytes((size)), .ibuf = 0, .cbuf = 0, .maxbuf = (size) })
 
-typedef struct {
-    char peek;
-    rune peekRune;
-
-    bool peekAvailable;
-
-    Stream s;
-} PeekStream;
-
-#define mkPeekStream(str) ((PeekStream){ .peekAvailable = false, .s = str })
-
 #define CHAR_NONE 0
 #define CHAR_EOF 0
 #define CHAR_ERROR 1
@@ -76,10 +69,29 @@ typedef struct {
     u64 errmsg;
 } MaybeChar;
 
+
+MaybeChar stream_popChar(Stream *s);
+MaybeRune stream_popRune(Stream *s);
+
 bool stream_writeChar(Stream *s, char c);
+bool stream_writeRune(Stream *s, rune r);
+
 usz stream_popChars(byte *dst, Stream *src, usz n);
+usz stream_writeChars(Stream *dst, byte *src, usz n);
+
+void stream_goBackOnePos(Stream *s);
+
+MaybeChar stream_peekChar(Stream *s);
+MaybeRune stream_peekRune(Stream *s);
+
+MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast);
+MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine);
+
 
 MaybeChar stream_popChar(Stream *s) {
+    if(!s) return none(MaybeChar);
+    if(s->hasPeek) { s->hasPeek = false; return just(MaybeChar, s->peekChar); }
+
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return none(MaybeChar);
         char c = s->s.s[s->i++];
@@ -111,75 +123,10 @@ MaybeChar stream_popChar(Stream *s) {
     }
 }
 
-usz stream_popChars(byte *dst, Stream *src, usz n) {
-    usz o = n;
-    if(src->type == STREAM_FD) {
-        return read(src->fd, dst, n);
-    }
-    else {
-        MaybeChar c;
-        while(n-- && 
-              isJust(c = stream_popChar(src))) {
-            *dst = c.value;
-            dst++;
-        }
-        return o - n - 1;
-    }
-}
-usz stream_writeChars(Stream *dst, byte *src, usz n) {
-    usz o = n;
-    if(dst->type == STREAM_FD) {
-        return write(dst->fd, src, n);
-    }
-    else {
-        while(n-- && 
-              stream_writeChar(dst, *src)) {
-            src++;
-        }
-        return o - n - 1;
-    }
-}
-
-bool stream_writeChar(Stream *s, char c) {
-    if(!s) return false;
-    if(s->type == STREAM_STR) {
-        if(s->i >= s->s.len) return false;
-        s->s.s[s->i++] = c;
-        return true;
-    }
-    else if(s->type == STREAM_FD) {
-        write(s->fd, &c, 1);
-    }
-    else if(s->type == STREAM_SB) {
-        sb_appendChar(s->sb, c);
-    }
-    else if(s->type == STREAM_NULL) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-// TODO: is it possible to undo write, if not the whole rune had been written?
-// maybe add a
-//      usz stream_getAvailableLength(Stream *s);
-bool stream_writeRune(Stream *s, rune r) {
-    i8 len = getRuneLen(r);
-    char *data = (char *)&r;
-    for(int i = 0; i < len; i++) {
-        bool result = stream_writeChar(s, data[i]);
-        if(!result) return false;
-    }
-    return true;
-}
-
-void stream_goBackOnePos(Stream *s) {
-    if(s->col > 0) { s->col--; }
-    else { s->row--; s->col = s->lastCol; }
-}
-
 MaybeRune stream_popRune(Stream *s) {
+    if(!s) return none(MaybeRune);
+    if(s->hasPeek) { s->hasPeek = false; return just(MaybeRune, s->peekRune); }
+
     char data[4] = {0};
     int len = 0;
     s->preservePos = true;
@@ -204,50 +151,106 @@ MaybeRune stream_popRune(Stream *s) {
     return fail(MaybeRune, RUNE_INVALID);
 }
 
-MaybeChar pstream_peekChar(PeekStream *s) {
-    if(s->peekAvailable) return just(MaybeChar, s->peek);
-    MaybeChar c = stream_popChar(&s->s);
-    if(c.error) return c;
-    s->peek = c.value;
-    s->peekAvailable = true;
+bool stream_writeChar(Stream *s, char c) {
+    if(!s) return false;
+    if(s->type == STREAM_STR) {
+        if(s->i >= s->s.len) return false;
+        s->s.s[s->i++] = c;
+        return true;
+    }
+    else if(s->type == STREAM_FD) {
+        write(s->fd, &c, 1);
+    }
+    else if(s->type == STREAM_SB) {
+        sb_appendChar(s->sb, c);
+    }
+    else if(s->type == STREAM_NULL) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+bool stream_writeRune(Stream *s, rune r) {
+    i8 len = getRuneLen(r);
+    char *data = (char *)&r;
+    for(int i = 0; i < len; i++) {
+        bool result = stream_writeChar(s, data[i]);
+        if(!result) return false;
+    }
+    return true;
+}
+
+usz stream_popChars(byte *dst, Stream *src, usz n) {
+    usz o = n;
+    if(src->type == STREAM_FD) {
+        return read(src->fd, dst, n);
+    }
+    else {
+        MaybeChar c;
+        while(n-- && 
+              isJust(c = stream_popChar(src))) {
+            *dst = c.value;
+            dst++;
+        }
+        return o - n - 1;
+    }
+}
+
+usz stream_writeChars(Stream *dst, byte *src, usz n) {
+    usz o = n;
+    if(dst->type == STREAM_FD) {
+        return write(dst->fd, src, n);
+    }
+    else {
+        while(n-- && 
+              stream_writeChar(dst, *src)) {
+            src++;
+        }
+        return o - n - 1;
+    }
+}
+
+void stream_goBackOnePos(Stream *s) {
+    if(s->col > 0) { s->col--; }
+    else { s->row--; s->col = s->lastCol; }
+}
+
+MaybeChar stream_peekChar(Stream *s) {
+    if(s->hasPeek) return just(MaybeChar, s->peekChar);
+    MaybeChar c = stream_popChar(s);
+    if(isNone(c)) return c;
+    s->peekChar = c.value;
+    s->hasPeek = true;
     return c;
 }
 
-MaybeChar pstream_popChar(PeekStream *s) {
-    if(s->peekAvailable) { s->peekAvailable = false; return just(MaybeChar, s->peek); }
-    return stream_popChar(&s->s);
-}
-
-MaybeRune pstream_peekRune(PeekStream *s) {
-    if(s->peekAvailable) return just(MaybeRune, s->peekRune);
-    MaybeRune r = stream_popRune(&s->s);
-    if(r.error) return r;
+MaybeRune stream_peekRune(Stream *s) {
+    if(s->hasPeek) return just(MaybeRune, s->peekRune);
+    MaybeRune r = stream_popRune(s);
+    if(isNone(r)) return r;
     s->peekRune = r.value;
-    s->peekAvailable = true;
+    s->hasPeek = true;
     return r;
 }
 
-MaybeRune pstream_popRune(PeekStream *s) {
-    if(s->peekAvailable) { s->peekAvailable = false; return just(MaybeRune, s->peekRune); }
-    return stream_popRune(&s->s);
-}
-
-MaybeChar pstream_routeUntil(PeekStream *s, Stream *out, char target, bool includeInResult, bool consumeLast) {
+MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast) {
     MaybeChar c;
-    while(isJust(c = pstream_peekChar(s)) && c.value != target) {
-        pstream_popRune(s);
+    while(isJust(c = stream_peekChar(s)) && c.value != target) {
+        stream_popRune(s);
         stream_writeChar(out, c.value);
     }
 
-    if(consumeLast) pstream_popChar(s);
+    if(consumeLast) stream_popChar(s);
     if(consumeLast && includeInResult) stream_writeChar(out, c.value);
-    c = pstream_peekChar(s);
+    c = stream_peekChar(s);
     return c;
 }
 
-MaybeChar pstream_routeLine(PeekStream *s, Stream *out, bool includeNewLine) {
-    pstream_routeUntil(s, out, '\n', includeNewLine, true);
-    MaybeChar c = pstream_peekChar(s);
+MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine) {
+    stream_routeUntil(s, out, '\n', includeNewLine, true);
+    MaybeChar c = stream_peekChar(s);
     return c;
 }
 

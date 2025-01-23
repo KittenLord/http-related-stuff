@@ -71,16 +71,16 @@ bool JSON_isAlpha(rune r);
 bool JSON_startNumber(rune r);
 bool JSON_isDigit(rune r);
 
-MaybeRune JSON_popWhitespace(PeekStream *s);
-String JSON_parseIdentifier(PeekStream *s, Alloc *alloc);
+MaybeRune JSON_popWhitespace(Stream *s);
+String JSON_parseIdentifier(Stream *s, Alloc *alloc);
 
-JsonValue JSON_parseNumber(PeekStream *s);
-JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc);
-JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc);
-JsonValue JSON_parseString(PeekStream *s, Alloc *alloc);
-JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc);
+JsonValue JSON_parseNumber(Stream *s);
+JsonValue JSON_parseObject(Stream *s, Alloc *alloc);
+JsonValue JSON_parseArray(Stream *s, Alloc *alloc);
+JsonValue JSON_parseString(Stream *s, Alloc *alloc);
+JsonValue JSON_parseValue(Stream *s, Alloc *alloc);
 
-JsonValue JSON_parse(PeekStream *s, Alloc *alloc);
+JsonValue JSON_parse(Stream *s, Alloc *alloc);
 
 bool JSON_serializeString(String string, Stream *s);
 bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent);
@@ -116,21 +116,21 @@ bool JSON_isDigit(rune r) {
     return r >= '0' && r <= '9';
 }
 
-MaybeRune JSON_popWhitespace(PeekStream *s) {
+MaybeRune JSON_popWhitespace(Stream *s) {
     MaybeRune r;
-    while(!(r = pstream_peekRune(s)).error && JSON_isWhitespace(r.value)) { 
-        pstream_popRune(s);
+    while(!(r = stream_peekRune(s)).error && JSON_isWhitespace(r.value)) { 
+        stream_popRune(s);
     }
     return r;
 }
 
-String JSON_parseIdentifier(PeekStream *s, Alloc *alloc) {
+String JSON_parseIdentifier(Stream *s, Alloc *alloc) {
     StringBuilder sb = mkStringBuilderCap(16);
     sb.alloc = alloc;
 
     // NOTE: true, false, null are 5 characters at most
     for(int i = 0; i < 6; i++) {
-        MaybeRune r = pstream_peekRune(s);
+        MaybeRune r = stream_peekRune(s);
 
         if(isNone(r)) {
             return sb_build(sb);
@@ -141,24 +141,24 @@ String JSON_parseIdentifier(PeekStream *s, Alloc *alloc) {
         }
 
         sb_appendRune(&sb, r.value);
-        pstream_popRune(s);
+        stream_popRune(s);
     }
 
     String result = sb_build(sb);
     return result;
 }
 
-JsonValue JSON_parseNumber(PeekStream *s) {
+JsonValue JSON_parseNumber(Stream *s) {
     i64 number = 0;
     f64 fnumber = 0;
     bool sign;
     bool canBeInteger = true;
 
-    MaybeRune r = pstream_peekRune(s); // -, 0-9
+    MaybeRune r = stream_peekRune(s); // -, 0-9
     if(r.value == '-') {
         sign = true;
-        pstream_popRune(s);
-        r = pstream_peekRune(s);
+        stream_popRune(s);
+        r = stream_peekRune(s);
     }
 
     if(isNone(r)) {
@@ -166,10 +166,10 @@ JsonValue JSON_parseNumber(PeekStream *s) {
     }
 
     if(isJust(r) && r.value != '0') {
-        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
+        while(isJust(r = stream_peekRune(s)) && JSON_isDigit(r.value)) {
             // TODO: i64 bounds checking
 
-            pstream_popRune(s); // pop the digit
+            stream_popRune(s); // pop the digit
             i64 digit = r.value - '0';
             if(number < 0) digit = -digit;
             number *= 10; number += digit;
@@ -179,10 +179,10 @@ JsonValue JSON_parseNumber(PeekStream *s) {
         }
     }
     else if(isJust(r) && r.value == '0') {
-        pstream_popRune(s); // pop zero
+        stream_popRune(s); // pop zero
     }
 
-    r = pstream_peekRune(s);
+    r = stream_peekRune(s);
 
     if(isFail(r, RUNE_EOF)) {
         JsonValueType type = canBeInteger ? JSON_NUMBER : JSON_FLOAT;
@@ -193,13 +193,13 @@ JsonValue JSON_parseNumber(PeekStream *s) {
     }
 
     if(isJust(r) && r.value == '.') {
-        pstream_popRune(s);
+        stream_popRune(s);
         canBeInteger = false;
         bool atLeastOneDigit = false;
         f64 power = 10;
 
-        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
-            pstream_popRune(s); // pop the digit
+        while(isJust(r = stream_peekRune(s)) && JSON_isDigit(r.value)) {
+            stream_popRune(s); // pop the digit
             atLeastOneDigit = true;
             f64 digit = (f64)(r.value - '0');
             digit /= power;
@@ -212,7 +212,7 @@ JsonValue JSON_parseNumber(PeekStream *s) {
         }
     }
 
-    r = pstream_peekRune(s);
+    r = stream_peekRune(s);
 
     if(isFail(r, RUNE_EOF)) {
         JsonValueType type = canBeInteger ? JSON_NUMBER : JSON_FLOAT;
@@ -223,22 +223,22 @@ JsonValue JSON_parseNumber(PeekStream *s) {
     }
 
     if(isJust(r) && (r.value == 'e' || r.value == 'E')) {
-        pstream_popRune(s); // pop the exponent
+        stream_popRune(s); // pop the exponent
 
-        r = pstream_peekRune(s);
+        r = stream_peekRune(s);
 
         if(isNone(r) || (isJust(r) && r.value != '+' && r.value != '-')) {
             return fail(JsonValue, mkString("No sign after an exponent identifier" DEBUG_LOC));
         }
 
-        r = pstream_popRune(s);
+        r = stream_popRune(s);
         bool expNegative = r.value == '-';
         bool makeExpNegative = expNegative;
         bool atLeastOneDigit = false;
         f64 exponent = 0;
 
-        while(isJust(r = pstream_peekRune(s)) && JSON_isDigit(r.value)) {
-            pstream_popRune(s); // pop the digit
+        while(isJust(r = stream_peekRune(s)) && JSON_isDigit(r.value)) {
+            stream_popRune(s); // pop the digit
             atLeastOneDigit = true;
             i64 digit = r.value - '0';
             exponent *= 10;
@@ -260,8 +260,8 @@ JsonValue JSON_parseNumber(PeekStream *s) {
     return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
 }
 
-JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
-    pstream_popRune(s); // pop the opening curly brace
+JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
+    stream_popRune(s); // pop the opening curly brace
 
     JsonObject object = {0};
     JsonKeyValue *last = null;
@@ -282,7 +282,7 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
             return fail(JsonValue, mkString("Expected a colon :" DEBUG_LOC));
         }
 
-        pstream_popRune(s); // pop the colon
+        stream_popRune(s); // pop the colon
 
         JsonValue value = JSON_parseValue(s, alloc);
 
@@ -301,10 +301,10 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
             last = pkeyValue;
         }
 
-        r = pstream_peekRune(s);
+        r = stream_peekRune(s);
 
         if(isJust(r) && r.value == ',') {
-            pstream_popRune(s); // pop the comma
+            stream_popRune(s); // pop the comma
 
             r = JSON_popWhitespace(s);
 
@@ -324,7 +324,7 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
     }
 
     if(isJust(r) && r.value == '}') {
-        pstream_popRune(s);
+        stream_popRune(s);
     }
 
     JsonObject *pobject = AllocateBytesC(alloc, sizeof(JsonObject));
@@ -333,8 +333,8 @@ JsonValue JSON_parseObject(PeekStream *s, Alloc *alloc) {
     return result;
 }
 
-JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
-    pstream_popRune(s); // pop the opening bracket
+JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
+    stream_popRune(s); // pop the opening bracket
 
     JsonArray array = {0};
     JsonArrayElement *last = null;
@@ -369,10 +369,10 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
             last = pitem;
         }
         
-        r = pstream_peekRune(s);
+        r = stream_peekRune(s);
 
         if(isJust(r) && r.value == ',') {
-            pstream_popRune(s); // pop the comma
+            stream_popRune(s); // pop the comma
 
             r = JSON_popWhitespace(s);
 
@@ -392,7 +392,7 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
     }
 
     if(isJust(r) && r.value == ']') {
-        pstream_popRune(s);
+        stream_popRune(s);
     }
 
     JsonArray *parray = AllocateBytesC(alloc, sizeof(JsonArray));
@@ -402,15 +402,15 @@ JsonValue JSON_parseArray(PeekStream *s, Alloc *alloc) {
     return result;
 }
 
-JsonValue JSON_parseString(PeekStream *s, Alloc *alloc) {
-    pstream_popRune(s); // pop the double-quote
+JsonValue JSON_parseString(Stream *s, Alloc *alloc) {
+    stream_popRune(s); // pop the double-quote
 
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
 
     MaybeRune r;
-    while(!(r = pstream_peekRune(s)).error && !JSON_isControl(r.value) && r.value != '\"') {
-        pstream_popRune(s);
+    while(!(r = stream_peekRune(s)).error && !JSON_isControl(r.value) && r.value != '\"') {
+        stream_popRune(s);
         if(r.value == '\\') {
             // TODO: escape sequences
             continue;
@@ -420,7 +420,7 @@ JsonValue JSON_parseString(PeekStream *s, Alloc *alloc) {
     }
 
     if(isJust(r) && r.value == '\"') {
-        pstream_popRune(s);
+        stream_popRune(s);
         JsonValue result = { .type = JSON_STRING, .string = sb_build(sb) };
         return result;
     }
@@ -436,7 +436,7 @@ JsonValue JSON_parseString(PeekStream *s, Alloc *alloc) {
     return fail(JsonValue, mkString("An unexpected error" DEBUG_LOC));
 }
 
-JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
+JsonValue JSON_parseValue(Stream *s, Alloc *alloc) {
     MaybeRune r = JSON_popWhitespace(s);
     if(isNone(r)) {
         if(isFail(r, RUNE_EOF)) {
@@ -493,10 +493,10 @@ JsonValue JSON_parseValue(PeekStream *s, Alloc *alloc) {
     return result;
 }
 
-JsonValue JSON_parse(PeekStream *s, Alloc *alloc) {
+JsonValue JSON_parse(Stream *s, Alloc *alloc) {
     JsonValue value = JSON_parseValue(s, alloc);
     if(isNone(value)) return value;
-    MaybeRune r = pstream_peekRune(s);
+    MaybeRune r = stream_peekRune(s);
     if(!isFail(r, RUNE_EOF)) return fail(JsonValue, mkString("Unexpected Character"));
     return value;
 }
