@@ -20,10 +20,7 @@ struct Alloc {
     void *data;
 };
 
-ptr  malloc_alloc(Alloc *a, usz size) {
-    printf("MALLOC\n");
-    return calloc(sizeof(byte), size);
-}
+ptr  malloc_alloc(Alloc *a, usz size) { return calloc(sizeof(byte), size); }
 void malloc_free(Alloc *a, ptr p) { free(p); }
 void malloc_reset(Alloc *a) {}
 void malloc_kill(Alloc *a) {}
@@ -107,7 +104,6 @@ ptr  LinearExpandable_alloc(Alloc *ap, usz size) {
         return result;
     }
     else {
-        printf("NEW PAGE\n");
         byte *newPage = AllocateBytesC(data->alloc, data->pageSize);
         *((ptr *)newPage) = data->page;
         data->page = newPage;
