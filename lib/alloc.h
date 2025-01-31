@@ -92,6 +92,8 @@ typedef struct {
 } Alloc_LinearExpadableData;
 
 ptr  LinearExpandable_alloc(Alloc *ap, usz size) {
+    // TODO: zero out memory
+
     Alloc a = *ap;
     Alloc_LinearExpadableData *data = a.data;
     if(size > data->pageSize - sizeof(ptr *)) return null; // TODO: figure out what to do here
@@ -167,6 +169,8 @@ Alloc mkAlloc_LinearExpandableAC(Alloc *alloc, usz pageSize) {
         .lastAllocSize = 0
     };
 
+    // NOTE: I'm not sure why this is necessary, for some reason this wasn't
+    // getting zeroed out, even though the global allocator uses calloc
     *(ptr *)data.page = null;
 
     Alloc_LinearExpadableData *pdata = AllocateBytesC(alloc, sizeof(Alloc_LinearExpadableData));

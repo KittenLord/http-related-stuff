@@ -16,6 +16,15 @@ typedef struct {
     Alloc *alloc;
 } Map;
 
+void map_depth(MapNode *node) {
+    int result = 0;
+    while(node != null) {
+        result++;
+        node = node->next;
+    }
+    return result;
+}
+
 void map_set(Map *map, Mem key, Mem val) {
     if(!map->nodes) {
         map->nodes = AllocateBytesC(map->alloc, sizeof(MapNode));

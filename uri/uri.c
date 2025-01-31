@@ -436,7 +436,6 @@ UriHost Uri_parseHost(Stream *s, Alloc *alloc) {
     if(isFail(regName, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriHost, mkString("Invalid percent encoding" DEBUG_LOC));
     if(isNone(regName)) return fail(UriHost, mkString("This shouldn't happen" DEBUG_LOC));
 
-    // TODO: validate percent encodings
     UriHost host = { .type = URI_HOST_REGNAME, .regName = regName.value };
     return host;
 }
@@ -468,7 +467,6 @@ UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
     }
 
     if(isJust(c) && c.value == '@') {
-        // TODO: validate percent-encodings
         stream_popChar(s);
         authority.hasUserInfo = true;
 
