@@ -136,8 +136,8 @@ bool Uri_isDigit(byte c) {
 
 bool Uri_isAlpha(byte c) {
     return
-    c >= 'a' && c <= 'z' ||
-    c >= 'A' && c <= 'Z' ;
+    (c >= 'a' && c <= 'z') ||
+    (c >= 'A' && c <= 'Z') ;
 }
 
 bool Uri_isSchemeChar(byte c) {
@@ -151,20 +151,20 @@ bool Uri_isSchemeChar(byte c) {
 
 bool Uri_isUnreserved(byte c) {
     return
-    c >= 'a' && c <= 'z' ||
-    c >= 'A' && c <= 'Z' ||
-    c >= '0' && c <= '9' ||
-    c == '-'             ||
-    c == '.'             ||
-    c == '_'             ||
-    c == '~'             ;
+    (c >= 'a' && c <= 'z') ||
+    (c >= 'A' && c <= 'Z') ||
+    (c >= '0' && c <= '9') ||
+    (c == '-'            ) ||
+    (c == '.'            ) ||
+    (c == '_'            ) ||
+    (c == '~'            ) ;
 }
 
 bool Uri_isHexdigit(byte c) {
     return
-    c >= '0' && c <= '9' ||
-    c >= 'a' && c <= 'f' ||
-    c >= 'A' && c <= 'F' ;
+    (c >= '0' && c <= '9') ||
+    (c >= 'a' && c <= 'f') ||
+    (c >= 'A' && c <= 'F') ;
 }
 
 bool Uri_getHexDigitValue(byte c) {

@@ -25,11 +25,11 @@ void malloc_free(Alloc *a, ptr p) { free(p); }
 void malloc_reset(Alloc *a) {}
 void malloc_kill(Alloc *a) {}
 
-#define ALLOC_GLOBAL_DEF ((Alloc){ .alloc = malloc_alloc, .free = malloc_free, .reset = malloc_reset, .kill = malloc_kill })
+#define ALLOC_GLOBAL_DEF (Alloc){ .alloc = malloc_alloc, .free = malloc_free, .reset = malloc_reset, .kill = malloc_kill }
 Alloc ALLOC_GLOBAL_VALUE = ALLOC_GLOBAL_DEF;
 Alloc *ALLOC_GLOBAL = &ALLOC_GLOBAL_VALUE;
 
-Alloc ALLOC_STACK[256] = { ALLOC_GLOBAL_DEF, 0 };
+Alloc ALLOC_STACK[256] = { ALLOC_GLOBAL_DEF, {0} };
 usz ALLOC_INDEX = 0;
 
 // TODO: maybe this'll be better as a pointer?

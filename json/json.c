@@ -660,16 +660,16 @@ bool JSON_serializeNumber(JsonValue value, Stream *s) {
 bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent) {
     if(isNone(value)) return false;
 
-    if(value.type == JSON_OBJECT) JSON_serializeObject(value, s, doIndent, indent);
-    else if(value.type == JSON_STRING) JSON_serializeString(value.string, s);
-    else if(value.type == JSON_ARRAY) JSON_serializeArray(value, s, doIndent, indent);
-    else if(value.type == JSON_NULL) JSON_serializeNull(value, s);
-    else if(value.type == JSON_BOOL) JSON_serializeBool(value, s);
-    else if(value.type == JSON_NUMBER) JSON_serializeNumber(value, s);
+    if(value.type == JSON_OBJECT)       return JSON_serializeObject(value, s, doIndent, indent);
+    else if(value.type == JSON_STRING)  return JSON_serializeString(value.string, s);
+    else if(value.type == JSON_ARRAY)   return JSON_serializeArray(value, s, doIndent, indent);
+    else if(value.type == JSON_NULL)    return JSON_serializeNull(value, s);
+    else if(value.type == JSON_BOOL)    return JSON_serializeBool(value, s);
+    else if(value.type == JSON_NUMBER)  return JSON_serializeNumber(value, s);
     else { return false; }
 }
 
 bool JSON_serialize(JsonValue value, Stream *s, bool doIndent) {
     if(isNone(value)) return false;
-    JSON_serializeValue(value, s, doIndent, 0);
+    return JSON_serializeValue(value, s, doIndent, 0);
 }

@@ -17,7 +17,7 @@ void skipTest(Stream *s) {
 
 int main() {
     String testsPath = mkString("./testing-data.txt");
-    FILE *testingData = fopen(testsPath.s, "r");
+    FILE *testingData = fopen((char *)testsPath.s, "r");
     if(!testingData) { printf("bad\n"); return 1; }
     int fd = fileno(testingData);
     Stream tests = mkStreamFd(fd);

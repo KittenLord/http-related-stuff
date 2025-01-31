@@ -21,7 +21,7 @@ struct Stream {
     StreamType type;
 
     bool hasPeek;
-    char peekChar;
+    byte peekChar;
     rune peekRune;
 
     usz pos;
@@ -64,7 +64,7 @@ struct Stream {
 #define CHAR_EOF 0
 #define CHAR_ERROR 1
 typedef struct {
-    char value;
+    byte value;
     bool error;
     u64 errmsg;
 } MaybeChar;
@@ -73,7 +73,7 @@ typedef struct {
 MaybeChar stream_popChar(Stream *s);
 MaybeRune stream_popRune(Stream *s);
 
-bool stream_writeChar(Stream *s, char c);
+bool stream_writeChar(Stream *s, byte c);
 bool stream_writeRune(Stream *s, rune r);
 
 void stream_goBackOnePos(Stream *s);
@@ -84,7 +84,7 @@ MaybeRune stream_peekRune(Stream *s);
 usz stream_popChars(byte *dst, Stream *src, usz n);
 usz stream_writeChars(Stream *dst, byte *src, usz n);
 
-MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast);
+MaybeChar stream_routeUntil(Stream *s, Stream *out, byte target, bool includeInResult, bool consumeLast);
 MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine);
 
 
@@ -94,7 +94,7 @@ MaybeChar stream_popChar(Stream *s) {
 
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return none(MaybeChar);
-        char c = s->s.s[s->i++];
+        byte c = s->s.s[s->i++];
         if(!s->preservePos) { 
             s->pos++;
             if(c == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
@@ -103,7 +103,7 @@ MaybeChar stream_popChar(Stream *s) {
         return just(MaybeChar, c);
     }
     else if(s->type == STREAM_FD) {
-        char c;
+        byte c;
         isz result = read(s->fd, &c, 1);
         if(result <= 0) return fail(MaybeChar, CHAR_ERROR);
         return just(MaybeChar, c);
@@ -127,7 +127,7 @@ MaybeRune stream_popRune(Stream *s) {
     if(!s) return none(MaybeRune);
     if(s->hasPeek) { s->hasPeek = false; return just(MaybeRune, s->peekRune); }
 
-    char data[4] = {0};
+    byte data[4] = {0};
     int len = 0;
     s->preservePos = true;
     while(len < 4) {
@@ -151,7 +151,7 @@ MaybeRune stream_popRune(Stream *s) {
     return fail(MaybeRune, RUNE_INVALID);
 }
 
-bool stream_writeChar(Stream *s, char c) {
+bool stream_writeChar(Stream *s, byte c) {
     if(!s) return false;
     if(s->type == STREAM_STR) {
         if(s->i >= s->s.len) return false;
@@ -160,9 +160,11 @@ bool stream_writeChar(Stream *s, char c) {
     }
     else if(s->type == STREAM_FD) {
         write(s->fd, &c, 1);
+        return true;
     }
     else if(s->type == STREAM_SB) {
         sb_appendChar(s->sb, c);
+        return true;
     }
     else if(s->type == STREAM_NULL) {
         return true;
@@ -174,7 +176,7 @@ bool stream_writeChar(Stream *s, char c) {
 
 bool stream_writeRune(Stream *s, rune r) {
     i8 len = getRuneLen(r);
-    char *data = (char *)&r;
+    byte *data = (byte *)&r;
     for(int i = 0; i < len; i++) {
         bool result = stream_writeChar(s, data[i]);
         if(!result) return false;
@@ -251,7 +253,7 @@ usz stream_writeChars(Stream *dst, byte *src, usz n) {
     }
 }
 
-MaybeChar stream_routeUntil(Stream *s, Stream *out, char target, bool includeInResult, bool consumeLast) {
+MaybeChar stream_routeUntil(Stream *s, Stream *out, byte target, bool includeInResult, bool consumeLast) {
     MaybeChar c;
     while(isJust(c = stream_peekChar(s)) && c.value != target) {
         stream_popRune(s);

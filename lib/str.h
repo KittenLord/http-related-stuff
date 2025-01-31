@@ -6,14 +6,12 @@
 
 #include "alloc.h"
 #include "types.h"
+#include "mem.h"
 
-typedef struct {
-    byte *s;
-    usz len;
-} String;
+typedef Mem String;
 
-#define mkStringLen(_s, _len) ((String){ .s = (_s), .len = (_len) })
-#define mkString(_s) ((String){ .s = (_s), .len = strlen((_s)) })
+#define mkStringLen(_s, _len) ((String){ .s = (byte *)(_s), .len = (_len) })
+#define mkString(_s) ((String){ .s = (byte *)(_s), .len = strlen((_s)) })
 
 bool str_equal(String a, String b) {
     if(a.s == null || b.s == null) return false;
@@ -51,7 +49,7 @@ typedef struct {
 
 #define sb_build(sb) ((String){ .s = (sb).s, .len = (sb).len })
 
-bool sb_appendChar(StringBuilder *sb, char c) {
+bool sb_appendChar(StringBuilder *sb, byte c) {
     if(sb->s && sb->len < sb->cap) { sb->s[sb->len++] = c; return true; }
     if(sb->dontExpand) return false;
     if(sb->cap == 0) sb->cap = 64;
@@ -84,7 +82,7 @@ bool sb_appendString(StringBuilder *sb, String str) {
 
 bool sb_appendRune(StringBuilder *sb, rune r) {
     // NOTE: this will only work on little endian lmao
-    char *data = (char *)&r;
+    byte *data = (byte *)&r;
     int i = 0;
     if(data[0] == '\0') { return sb_appendChar(sb, '\0'); }
     bool result;
@@ -104,7 +102,7 @@ bool sb_appendRune(StringBuilder *sb, rune r) {
     return false;
 }
 
-bool string_contains(char c, String s) {
+bool string_contains(byte c, String s) {
     for(int i = 0; i < s.len; i++) {
         if(s.s[i] == c) return true;
     }

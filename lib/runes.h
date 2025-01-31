@@ -35,17 +35,17 @@ bool runeUtf2(byte c0, byte c1, u8 cap) {
 
 bool runeUtf3(byte c0, byte c1, byte c2, u8 cap) {
     return
-    (c0 == 0xE0) && ((c1 >= 0xA0 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
-    (c0 >= 0xE1 && c0 <= 0xEC) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
-    (c0 == 0xED) && ((c1 >= 0x80 && c1 <= 0x9F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) ||
-    (c0 >= 0xEE && c0 <= 0xEF) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2);
+    ((c0 == 0xE0) && ((c1 >= 0xA0 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2)) ||
+    ((c0 >= 0xE1 && c0 <= 0xEC) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2)) ||
+    ((c0 == 0xED) && ((c1 >= 0x80 && c1 <= 0x9F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2)) ||
+    ((c0 >= 0xEE && c0 <= 0xEF) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2));
 }
 
 bool runeUtf4(byte c0, byte c1, byte c2, byte c3, u8 cap) {
     return
-    (c0 == 0xF0) && ((c1 >= 0x90 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3) ||
-    (c0 >= 0xF1 && c0 <= 0xF3) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3) ||
-    (c0 == 0xF4) && ((c1 >= 0x80 && c1 <= 0x8F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3);
+    ((c0 == 0xF0) && ((c1 >= 0x90 && c1 <= 0xBF) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3)) ||
+    ((c0 >= 0xF1 && c0 <= 0xF3) && (runeUtfTail(c1) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3)) ||
+    ((c0 == 0xF4) && ((c1 >= 0x80 && c1 <= 0x8F) || cap <= 1) && (runeUtfTail(c2) || cap <= 2) && (runeUtfTail(c3) || cap <= 3));
 }
 
 i8 getRuneLen(rune r) {
