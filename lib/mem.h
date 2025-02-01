@@ -9,6 +9,8 @@ typedef struct {
     usz len;
 } Mem;
 
+#define memnull ((Mem){ .s = null, .len = 0 })
+
 bool mem_eq(Mem a, Mem b) {
     if(a.s == null && b.s == null) return true;
     if(a.s == null || b.s == null) return false;

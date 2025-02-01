@@ -1,23 +1,27 @@
 #ifndef __LIB_MAP
 #define __LIB_MAP
 
-#include <types.h>
-#include <alloc.h>
+#include "types.h"
+#include "alloc.h"
+#include "mem.h"
 
-typedef struct {
+typedef struct MapNode MapNode;
+struct MapNode {
     Mem key;
     Mem val;
 
     MapNode *next;
-} MapNode;
+};
 
 typedef struct {
     MapNode *nodes;
     Alloc *alloc;
 } Map;
 
-void map_depth(MapNode *node) {
-    int result = 0;
+#define mkMap(_alloc) ((Map){ .alloc = (_alloc) })
+
+usz map_depth(MapNode *node) {
+    usz result = 0;
     while(node != null) {
         result++;
         node = node->next;
@@ -57,7 +61,7 @@ Mem map_get(Map *map, Mem key) {
         current = current->next;
     }
 
-    if(current == null) return (Mem){ .s = null, .len = 0 };
+    if(current == null) return memnull;
     return current->val;
 }
 

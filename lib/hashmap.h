@@ -1,9 +1,10 @@
 #ifndef __LIB_HASHMAP
 #define __LIB_HASHMAP
 
-#include <types.h>
-#include <alloc.h>
-#include <map.h>
+#include "types.h"
+#include "alloc.h"
+#include "map.h"
+#include "mem.h"
 
 typedef struct {
     MapNode **nodes;
@@ -16,20 +17,22 @@ typedef struct {
     Alloc *alloc;
 } Hashmap;
 
+#define mkHashmap(_alloc) ((Hashmap){ .alloc = (_alloc) })
+
 // https://github.com/fabiogaluppo/fnv/blob/main/fnv64.hpp
 // from here
 usz fnv64hash(Mem m) {
-    usz hash = 0xcbf29ce484222325ULL;
-    for(int i = 0; i < m.len; i++)
+    usz h = 0xcbf29ce484222325ULL;
+    for(int i = 0; i < m.len; i++) {
         h += (h << 1) + (h << 4) + (h << 5) +
              (h << 7) + (h << 8) + (h << 40);
         h ^= (uint64_t)(m.s[i]);
     }
-    return hash;
+    return h;
 }
 // to here
 
-void hm_fix(HashMap *hm) {
+void hm_fix(Hashmap *hm) {
     if(hm->nodes == null) {
         hm->nodes = AllocateBytesC(hm->alloc, sizeof(MapNode *) * 16);
         hm->len = 16;
@@ -41,10 +44,14 @@ void hm_fix(HashMap *hm) {
     // TODO: rebalancing if needed
 }
 
+usz hm_index(usz mod, Mem key) {
+    usz hash = fnv64hash(key);
+    return hash % mod;
+}
+
 void hm_set(Hashmap *hm, Mem key, Mem val) {
     hm_fix(hm);
-    usz hash = fnv64hash(key);
-    usz index = hash % hm->len;
+    usz index = hm_index(hm->len, key);
     MapNode *nodes = hm->nodes[index];
 
     if(nodes == null) {
@@ -67,7 +74,7 @@ void hm_set(Hashmap *hm, Mem key, Mem val) {
 
     MapNode *current = nodes;
     int depth = 1;
-    while(current->next != null && !map_eq(current->next->key, key)) {
+    while(current->next != null && !mem_eq(current->next->key, key)) {
         depth++;
         current = current->next;
     }
@@ -90,7 +97,15 @@ void hm_set(Hashmap *hm, Mem key, Mem val) {
 }
 
 Mem hm_get(Hashmap *hm, Mem key) {
-    return (Mem){0};
+    hm_fix(hm);
+    usz index = hm_index(hm->len, key);
+    MapNode *current = hm->nodes[index];
+    while(current != null && !mem_eq(current->key, key)) {
+        current = current->next;
+    }
+
+    if(current == null) return memnull;
+    return current->val;
 }
 
 void hm_remove(Hashmap *hm, Mem key) {
