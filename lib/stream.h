@@ -15,7 +15,6 @@ typedef u8 StreamType;
 #define STREAM_FILE 3
 #define STREAM_SB 4
 #define STREAM_NULL 5
-#define STREAM_BUF 6
 typedef struct Stream Stream;
 struct Stream {
     StreamType type;
@@ -23,6 +22,15 @@ struct Stream {
     bool hasPeek;
     byte peekChar;
     rune peekRune;
+
+    bool wbufferEnabled;
+    Mem wbuffer;
+    usz wbufferTaken;
+
+    bool rbufferEnabled;
+    Mem rbuffer;
+    usz rbufferSize;
+    usz rbufferConsumed;
 
     usz pos;
     usz col;
@@ -42,14 +50,7 @@ struct Stream {
 
         struct {
             StringBuilder *sb;
-        };
-
-        struct {
-            Stream *bufbase;
-            byte *buf;
-            usz ibuf;
-            usz cbuf;
-            usz maxbuf;
+            usz sbi;
         };
     };
 };
@@ -58,7 +59,6 @@ struct Stream {
 #define mkStreamFd(_fd) ((Stream){ .type = STREAM_FD, .fd = (_fd) })
 #define mkStreamSb(_sb) ((Stream){ .type = STREAM_SB, .sb = (_sb) })
 #define mkStreamNull() ((Stream){ .type = STREAM_NULL })
-#define mkStreamBuf(base, size) ((Stream){ .type = STREAM_BUF, .bufbase = (base), .buf = AllocateBytes((size)), .ibuf = 0, .cbuf = 0, .maxbuf = (size) })
 
 #define CHAR_NONE 0
 #define CHAR_EOF 0
@@ -67,60 +67,175 @@ typedef struct {
     byte value;
     bool error;
     u64 errmsg;
-} MaybeChar;
+} MaybeByte;
+typedef MaybeByte MaybeChar;
 
+typedef struct {
+    bool error;
 
-MaybeChar stream_popChar(Stream *s);
-MaybeRune stream_popRune(Stream *s);
+    bool partial;
+    usz written;
+} ResultWrite;
 
-bool stream_writeChar(Stream *s, byte c);
-bool stream_writeRune(Stream *s, rune r);
+typedef struct {
+    bool error;
 
-void stream_goBackOnePos(Stream *s);
+    bool partial;
+    usz read;
+} ResultRead;
 
-MaybeChar stream_peekChar(Stream *s);
-MaybeRune stream_peekRune(Stream *s);
+#define mkResultWrite(intend, real) ((ResultWrite){ .written = (real), .partial = (real) < (intend) })
+#define mkResultRead(intend, real) ((ResultRead){ .read = (real), .partial = (real) < (intend) })
 
-usz stream_popChars(byte *dst, Stream *src, usz n);
-usz stream_writeChars(Stream *dst, byte *src, usz n);
+void stream_wbufferEnable(Stream *s, usz size) {
+    if(s->wbufferEnabled) return;
 
-MaybeChar stream_routeUntil(Stream *s, Stream *out, byte target, bool includeInResult, bool consumeLast);
-MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine);
+    s->wbufferEnabled = true;
+    s->wbuffer.s = AllocateBytes(size);
+    s->wbuffer.len = size;
+    s->wbufferTaken = 0;
+}
 
+void stream_rbufferEnable(Stream *s, usz size) {
+    if(s->rbufferEnabled) return;
+
+    s->rbufferEnabled = true;
+    s->rbuffer.s = AllocateBytes(size);
+    s->rbuffer.len = size;
+    s->rbufferSize = 0;
+    s->rbufferConsumed = 0;
+}
+
+ResultWrite stream_writeRaw(Stream *s, Mem mem) {
+    if(!s) return none(ResultWrite);
+
+    if(false) {}
+    else if(s->type == STREAM_FD) {
+        isz written = write(s->fd, mem.s, mem.len);
+        if(written < 0) return none(ResultWrite);
+        return mkResultWrite(mem.len, (usz)written);
+    }
+    else if(s->type == STREAM_SB) {
+        bool result = sb_appendMem(s->sb, mem);
+        if(result) { return mkResultWrite(mem.len, mem.len); }
+        else { return none(ResultWrite); } 
+    }
+    else {
+        printf("DAAWDADW");
+        return none(ResultWrite);
+    }
+}
+
+ResultWrite stream_writeFlush(Stream *s) {
+    if(!s) return none(ResultWrite);
+    if(!s->wbufferEnabled) return mkResultWrite(0, 0);
+
+    ResultWrite result = stream_writeRaw(s, mkMem(s->wbuffer.s, s->wbufferTaken));
+
+    if(result.partial) {
+        mem_move(s->wbuffer, memIndex(s->wbuffer, result.written));
+        s->wbufferTaken -= result.written;
+    }
+    else if(!result.error && !result.partial) {
+        s->wbufferTaken = 0;
+    }
+
+    return result;
+}
+
+ResultWrite stream_write(Stream *s, Mem mem) {
+    if(!s) return none(ResultWrite);
+
+    if(s->wbufferEnabled) {
+        if(s->wbufferTaken + mem.len < s->wbuffer.len) {
+            mem_copy(memIndex(s->wbuffer, s->wbufferTaken), mem);
+            s->wbufferTaken += mem.len;
+            return mkResultWrite(mem.len, mem.len);
+        }
+        else {
+            ResultWrite result = stream_writeFlush(s);
+            if(result.error || result.partial) return result;
+
+            return stream_writeRaw(s, mem);
+        }
+    }
+    else {
+        return stream_writeRaw(s, mem);
+    }
+}
+
+ResultRead stream_readRaw(Stream *s, Mem mem) {
+    if(!s) return none(ResultRead);
+
+    if(false) {}
+    else if(s->type == STREAM_FD) {
+        isz bytesRead = read(s->fd, mem.s, mem.len);
+        if(bytesRead < 0) return none(ResultRead);
+        return mkResultRead(mem.len, (usz)bytesRead);
+    }
+    else if(s->type == STREAM_SB) {
+        Mem src = memIndex(s->sb->s, s->sbi);
+        src = memLimit(src, mem.len);
+        mem_copy(mem, src);
+        return mkResultRead(mem.len, src.len);
+    }
+    else if(s->type == STREAM_STR) {
+        Mem src = memIndex(s->s, s->i);
+        src = memLimit(src, mem.len);
+        mem_copy(mem, src);
+        s->i += src.len;
+        return mkResultRead(mem.len, src.len);
+    }
+    else {
+        printf("READ");
+        return none(ResultRead);
+    }
+}
+
+ResultRead stream_read(Stream *s, Mem mem) {
+    if(!s) return none(ResultRead);
+
+    if(s->rbufferEnabled) {
+        if(mem.len <= s->rbufferSize - s->rbufferConsumed) {
+            mem_copy(mem, memIndex(s->rbuffer, s->rbufferConsumed));
+            s->rbufferConsumed += mem.len;
+            return mkResultRead(mem.len, mem.len);
+        }
+        else {
+            usz intend = mem.len;
+            Mem src = memIndex(s->rbuffer, s->rbufferConsumed);
+            src = memLimit(src, s->rbufferSize - s->rbufferConsumed);
+            mem_copy(mem, src);
+
+            mem = memIndex(mem, src.len);
+            ResultRead result = stream_readRaw(s, mem);
+            if(result.error) return result;
+            usz bytesRead = result.read;
+
+            s->rbufferConsumed = 0;
+            result = stream_readRaw(s, s->rbuffer);
+            if(!result.error) { s->rbufferSize = result.read; }
+            else { s->rbufferSize = 0; }
+
+            return mkResultRead(intend, src.len + bytesRead);
+        }
+    }
+    else {
+        return stream_readRaw(s, mem);
+    }
+}
 
 MaybeChar stream_popChar(Stream *s) {
     if(!s) return none(MaybeChar);
     if(s->hasPeek) { s->hasPeek = false; return just(MaybeChar, s->peekChar); }
 
-    if(s->type == STREAM_STR) {
-        if(s->i >= s->s.len) return none(MaybeChar);
-        byte c = s->s.s[s->i++];
-        if(!s->preservePos) { 
-            s->pos++;
-            if(c == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
-            else          { s->col++; }
-        }
-        return just(MaybeChar, c);
-    }
-    else if(s->type == STREAM_FD) {
-        byte c;
-        isz result = read(s->fd, &c, 1);
-        if(result <= 0) return fail(MaybeChar, CHAR_ERROR);
-        return just(MaybeChar, c);
-    }
-    else if(s->type == STREAM_BUF) {
-        if(s->ibuf < s->cbuf) {
-            return just(MaybeChar, s->buf[s->ibuf++]);
-        }
+    byte b = 0;
+    Mem m = mkMem(&b, 1);
+    ResultRead result = stream_read(s, m);
 
-        s->cbuf = stream_popChars(s->buf, s->bufbase, s->maxbuf);
-        s->ibuf = 0;
-        if(s->cbuf == 0) return fail(MaybeChar, CHAR_EOF);
-        return just(MaybeChar, s->buf[s->ibuf++]);
-    }
-    else {
-        return fail(MaybeChar, CHAR_ERROR);
-    }
+    if(result.error) return fail(MaybeChar, CHAR_ERROR);
+    if(result.partial) return fail(MaybeChar, CHAR_EOF);
+    return just(MaybeChar, b);
 }
 
 MaybeRune stream_popRune(Stream *s) {
@@ -152,26 +267,9 @@ MaybeRune stream_popRune(Stream *s) {
 }
 
 bool stream_writeChar(Stream *s, byte c) {
-    if(!s) return false;
-    if(s->type == STREAM_STR) {
-        if(s->i >= s->s.len) return false;
-        s->s.s[s->i++] = c;
-        return true;
-    }
-    else if(s->type == STREAM_FD) {
-        write(s->fd, &c, 1);
-        return true;
-    }
-    else if(s->type == STREAM_SB) {
-        sb_appendChar(s->sb, c);
-        return true;
-    }
-    else if(s->type == STREAM_NULL) {
-        return true;
-    }
-    else {
-        return false;
-    }
+    Mem m = mkMem(&c, 1);
+    ResultWrite result = stream_write(s, m);
+    return !result.error && !result.partial;
 }
 
 bool stream_writeRune(Stream *s, rune r) {
@@ -205,52 +303,6 @@ MaybeRune stream_peekRune(Stream *s) {
     s->peekRune = r.value;
     s->hasPeek = true;
     return r;
-}
-
-// TODO: I'm not sure this is a good API - I think of smth
-// like this:
-//
-// Stream sin, sout
-// usz amount
-// buffin = getBuffIn(sin, amount)
-// buffout = getBuffOut(sout, amount)
-// if(buffin && buffout)    memcpy(buffout, buffin, amount)
-// else if(buffin)          writeChars(sout, buffin, amount)
-// else if(buffout)         popChars(buffout, sin, amount)
-// else                     // manual while loop
-//
-// of course, this needs to account for getBuffIn and
-// getBuffOut routines not being able to provide the buffer
-// of the required size
-
-usz stream_popChars(byte *dst, Stream *src, usz n) {
-    usz o = n;
-    if(src->type == STREAM_FD) {
-        return read(src->fd, dst, n);
-    }
-    else {
-        MaybeChar c;
-        while(n-- && 
-              isJust(c = stream_popChar(src))) {
-            *dst = c.value;
-            dst++;
-        }
-        return o - n - 1;
-    }
-}
-
-usz stream_writeChars(Stream *dst, byte *src, usz n) {
-    usz o = n;
-    if(dst->type == STREAM_FD) {
-        return write(dst->fd, src, n);
-    }
-    else {
-        while(n-- && 
-              stream_writeChar(dst, *src)) {
-            src++;
-        }
-        return o - n - 1;
-    }
 }
 
 MaybeChar stream_routeUntil(Stream *s, Stream *out, byte target, bool includeInResult, bool consumeLast) {

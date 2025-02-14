@@ -20,7 +20,7 @@ struct Alloc {
     void *data;
 };
 
-ptr  malloc_alloc(Alloc *a, usz size) { return calloc(sizeof(byte), size); }
+ptr  malloc_alloc(Alloc *a, usz size) { return calloc(size, sizeof(byte)); }
 void malloc_free(Alloc *a, ptr p) { free(p); }
 void malloc_reset(Alloc *a) {}
 void malloc_kill(Alloc *a) {}

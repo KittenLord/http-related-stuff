@@ -186,7 +186,7 @@ byte Uri_lowercaseChar(byte c) {
 
 void Uri_lowercase(String *s) {
     if(!s) return;
-    for(int i = 0; i < s->len; i++) {
+    for(usz i = 0; i < s->len; i++) {
         s->s[i] = Uri_lowercaseChar(s->s[i]);
     }
 }
@@ -308,7 +308,7 @@ MaybeString Uri_parsePcharRawString(Stream *s, Alloc *alloc, bool lowercase, Str
         if(isNone(pchar)) break; // eof or non pchar
 
         // a pchar can be either 1 or 3 characters (percent encoding)
-        for(int i = 0; i < pchar.value.len; i++) {
+        for(usz i = 0; i < pchar.value.len; i++) {
             sb_appendChar(&sb, pchar.value.s[i]);
         }
     }
@@ -455,8 +455,8 @@ UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
     authority.hasUserInfo = false;
     authority.hasPort = false;
 
-    StringBuilder userInfo = mkStringBuilderCap(64);
-    userInfo.alloc = alloc;
+    // StringBuilder userInfo = mkStringBuilderCap(64);
+    // userInfo.alloc = alloc;
 
     StringBuilder buffer = mkStringBuilderCap(64);
 

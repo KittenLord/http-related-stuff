@@ -1,1 +1,1 @@
-gcc ./main.c -o ../bin/uri-testing -I../lib -ggdb -Wall -Wpedantic && ../bin/uri-testing
+gcc ./main.c -o ../bin/uri-testing -I../lib -ggdb -Wall -Wextra -Wpedantic && ../bin/uri-testing

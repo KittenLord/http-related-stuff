@@ -4,6 +4,7 @@
 // TODO: remove this
 #include <string.h>
 
+#include "runes.h"
 #include "alloc.h"
 #include "types.h"
 #include "mem.h"
@@ -19,7 +20,7 @@ bool str_equal(String a, String b) {
     usz len = a.len;
 
     // NOTE: I'm pretty sure this will still work for utf-8 strings
-    for(int i = 0; i < len; i++) {
+    for(usz i = 0; i < len; i++) {
         if(a.s[i] != b.s[i]) return false;
         return true;
     }
@@ -35,8 +36,7 @@ typedef struct {
 } MaybeString;
 
 typedef struct {
-    byte *s;
-    usz len;
+    String s;
     usz cap;
 
     bool dontExpand;
@@ -44,66 +44,64 @@ typedef struct {
     Alloc *alloc;
 } StringBuilder;
 
-#define mkStringBuilder() ((StringBuilder){ .alloc = &ALLOC })
+#define mkStringBuilder() mkStringBuilderCap(32)
 #define mkStringBuilderCap(c) ((StringBuilder){ .alloc = &ALLOC, .cap = (c) })
 
-#define sb_build(sb) ((String){ .s = (sb).s, .len = (sb).len })
+#define sb_build(sb) ((String){ .s = (sb).s.s, .len = (sb).s.len })
 
-bool sb_appendChar(StringBuilder *sb, byte c) {
-    if(sb->s && sb->len < sb->cap) { sb->s[sb->len++] = c; return true; }
-    if(sb->dontExpand) return false;
-    if(sb->cap == 0) sb->cap = 64;
-    usz newCap = sb->s == null ? sb->cap : sb->cap * 2;
-    byte *new = AllocateBytesC(sb->alloc, newCap);
-    if(sb->s) memcpy(new, sb->s, sb->cap);
-    FreeC(sb->alloc, sb->s);
-    sb->s = new;
+bool sb_appendMem(StringBuilder *sb, Mem m) {
+    if(sb->s.s == null) {
+        sb->s.s = AllocateBytesC(sb->alloc, sb->cap);
+        sb->s.len = 0;
+    }
+
+    if(m.len + sb->s.len <= sb->cap) {
+        Mem dst = mkMem(sb->s.s, sb->cap);
+        dst = memIndex(dst, sb->s.len);
+        mem_copy(dst, m);
+        sb->s.len += m.len;
+        return true;
+    }
+
+    usz oldLen = sb->s.len;
+    usz newCap = sb->cap * 2;
+    if(newCap < sb->s.len + m.len) newCap = sb->s.len + m.len;
+
+    byte *newBytes = AllocateBytesC(sb->alloc, newCap);
+    if(!newBytes) return false;
+
+    Mem newS = mkMem(newBytes, newCap);
+    mem_copy(newS, sb->s);
+    FreeC(sb->alloc, sb->s.s);
     sb->cap = newCap;
-    sb->s[sb->len++] = c;
-    return true;
+    sb->s = newS;
+    sb->s.len = oldLen;
+
+    return sb_appendMem(sb, m);
 }
+#define sb_appendString(sb, m) sb_appendMem(sb, m)
+
+bool sb_appendByte(StringBuilder *sb, byte b) {
+    Mem m = mkMem(&b, 1);
+    return sb_appendMem(sb, m);
+}
+#define sb_appendChar(sb, b) sb_appendByte(sb, b)
 
 void sb_reset(StringBuilder *sb) {
-    if(!sb) return;
-    if(!sb->s) return;
-    sb->len = 0;
-    for(int i = 0; i < sb->cap; i++) {
-        sb->s[i] = 0x00;
+    for(usz i = 0; i < sb->cap; i++) {
+        sb->s.s[i] = 0x00;
     }
-}
-
-bool sb_appendString(StringBuilder *sb, String str) {
-    bool result = true;
-    for(int i = 0; i < str.len; i++) {
-        result = result && sb_appendChar(sb, str.s[i]);
-    }
-    return result;
+    sb->s.len = 0;
 }
 
 bool sb_appendRune(StringBuilder *sb, rune r) {
-    // NOTE: this will only work on little endian lmao
-    byte *data = (byte *)&r;
-    int i = 0;
-    if(data[0] == '\0') { return sb_appendChar(sb, '\0'); }
-    bool result;
-    while(i < 4 && data[i] != '\0') { 
-        result = sb_appendChar(sb, data[i]); 
-        i++;
-
-        if(!result) break;
-    }
-
-    if(result) return true;
-
-    for(; i > 0; i--) {
-        sb->len--;
-    }
-
-    return false;
+    i8 len = getRuneLen(r);
+    Mem m = mkMem((byte *)&r, len);
+    return sb_appendMem(sb, m);
 }
 
 bool string_contains(byte c, String s) {
-    for(int i = 0; i < s.len; i++) {
+    for(usz i = 0; i < s.len; i++) {
         if(s.s[i] == c) return true;
     }
     return false;

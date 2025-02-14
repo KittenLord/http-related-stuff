@@ -5,6 +5,7 @@
 #define BLOCK(b) do { b } while(0)
 
 #define just(ty, v) ((ty){ .value = (v) })
+#define justv(ty, f, v) ((ty){ .f = (v) })
 #define none(ty) ((ty){ .error = true })
 #define fail(ty, m) ((ty){ .error = true, .errmsg = (m) })
 

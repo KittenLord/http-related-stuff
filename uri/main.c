@@ -21,6 +21,8 @@ int main() {
     if(!testingData) { printf("bad\n"); return 1; }
     int fd = fileno(testingData);
     Stream tests = mkStreamFd(fd);
+    stream_rbufferEnable(&tests, 2048);
+
     MaybeChar c;
 
     int totalInvalidTests = 0;
@@ -65,8 +67,8 @@ int main() {
                 detectedInvalidTests++;
             }
             else {
-                printf("FAILED TEST: [%s]\n", sbTitle.s);
-                printf("    Test Uri: \"%s\"\n", sbUri.s);
+                printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+                printf("    Test Uri: \"%s\"\n", sbUri.s.s);
                 printf("    - False positive\n\n");
                 skipTest(&tests);
             }
@@ -74,8 +76,8 @@ int main() {
         }
 
         if(uri.error) {
-            printf("FAILED TEST: [%s]\n", sbTitle.s);
-            printf("    Test Uri: \"%s\"\n", sbUri.s);
+            printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+            printf("    Test Uri: \"%s\"\n", sbUri.s.s);
             printf("    - False negative: %s\n\n", uri.errmsg.s);
             skipTest(&tests);
             continue;
@@ -91,11 +93,11 @@ int main() {
         sb_appendString(&sbComp, mkString("Scheme: "));
         sb_appendString(&sbComp, uri.scheme);
         if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
-            printf("FAILED TEST: [%s]\n", sbTitle.s);
-            printf("    Test Uri: \"%s\"\n", sbUri.s);
+            printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+            printf("    Test Uri: \"%s\"\n", sbUri.s.s);
             printf("    - Schemes not equal:\n");
-            printf("        Test:   %s\n", sbTemp.s);
-            printf("        Parsed: %s\n\n", sbComp.s);
+            printf("        Test:   %s\n", sbTemp.s.s);
+            printf("        Parsed: %s\n\n", sbComp.s.s);
             skipTest(&tests);
             continue;
         }
@@ -116,11 +118,11 @@ int main() {
                     sb_appendString(&sbComp, mkString("Userinfo: "));
                     sb_appendString(&sbComp, authority.userInfo);
                     if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
-                        printf("FAILED TEST: [%s]\n", sbTitle.s);
-                        printf("    Test Uri: \"%s\"\n", sbUri.s);
+                        printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+                        printf("    Test Uri: \"%s\"\n", sbUri.s.s);
                         printf("    - Userinfos not equal:\n");
-                        printf("        Test:   %s\n", sbTemp.s);
-                        printf("        Parsed: %s\n\n", sbComp.s);
+                        printf("        Test:   %s\n", sbTemp.s.s);
+                        printf("        Parsed: %s\n\n", sbComp.s.s);
                         skipTest(&tests);
                         continue;
                     }
@@ -151,11 +153,11 @@ int main() {
                 }
 
                 if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
-                    printf("FAILED TEST: [%s]\n", sbTitle.s);
-                    printf("    Test Uri: \"%s\"\n", sbUri.s);
+                    printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+                    printf("    Test Uri: \"%s\"\n", sbUri.s.s);
                     printf("    - Hosts not equal:\n");
-                    printf("        Test:   %s\n", sbTemp.s);
-                    printf("        Parsed: %s\n\n", sbComp.s);
+                    printf("        Test:   %s\n", sbTemp.s.s);
+                    printf("        Parsed: %s\n\n", sbComp.s.s);
                     skipTest(&tests);
                     continue;
                 }
@@ -168,11 +170,11 @@ int main() {
                     sb_appendString(&sbComp, mkString("Port: "));
                     sb_appendString(&sbComp, authority.portString);
                     if(!str_equal(sb_build(sbComp), sb_build(sbTemp))) {
-                        printf("FAILED TEST: [%s]\n", sbTitle.s);
-                        printf("    Test Uri: \"%s\"\n", sbUri.s);
+                        printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+                        printf("    Test Uri: \"%s\"\n", sbUri.s.s);
                         printf("    - Ports not equal:\n");
-                        printf("        Test:   %s\n", sbTemp.s);
-                        printf("        Parsed: %s\n\n", sbComp.s);
+                        printf("        Test:   %s\n", sbTemp.s.s);
+                        printf("        Parsed: %s\n\n", sbComp.s.s);
                         skipTest(&tests);
                         continue;
                     }
@@ -190,11 +192,11 @@ int main() {
                 sb_appendString(&sbComp, mkString("Path: "));
                 sb_appendString(&sbComp, current->segment);
                 if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
-                    printf("FAILED TEST: [%s]\n", sbTitle.s);
-                    printf("    Test Uri: \"%s\"\n", sbUri.s);
+                    printf("FAILED TEST: [%s]\n", sbTitle.s.s);
+                    printf("    Test Uri: \"%s\"\n", sbUri.s.s);
                     printf("    - Paths not equal:\n");
-                    printf("        Test:   %s\n", sbTemp.s);
-                    printf("        Parsed: %s\n\n", sbComp.s);
+                    printf("        Test:   %s\n", sbTemp.s.s);
+                    printf("        Parsed: %s\n\n", sbComp.s.s);
                     skipTest(&tests);
                     pathError = true;
                     break;
