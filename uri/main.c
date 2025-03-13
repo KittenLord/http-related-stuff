@@ -5,7 +5,8 @@
 
 #include <stream.h>
 #include <alloc.h>
-#include "uri.c"
+
+#include <http/uri.c>
 
 void skipTest(Stream *s) {
     MaybeChar c;

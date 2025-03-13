@@ -17,4 +17,6 @@
 #define TOSTRING(x) STRINGIFY(x)
 #define DEBUG_LOC " " TOSTRING(__FILE__) ":" TOSTRING(__LINE__)
 
+#define GLOBAL
+
 #endif // __LIB_MACROS

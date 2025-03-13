@@ -3,7 +3,8 @@
 
 #include <stream.h>
 #include <alloc.h>
-#include "json.c"
+
+#include <http/json.c>
 
 int main() {
     Stream s = mkStreamStr(mkString("-9223372036854775807"));

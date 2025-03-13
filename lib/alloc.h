@@ -26,11 +26,11 @@ void malloc_reset(Alloc *a) {}
 void malloc_kill(Alloc *a) {}
 
 #define ALLOC_GLOBAL_DEF (Alloc){ .alloc = malloc_alloc, .free = malloc_free, .reset = malloc_reset, .kill = malloc_kill }
-Alloc ALLOC_GLOBAL_VALUE = ALLOC_GLOBAL_DEF;
-Alloc *ALLOC_GLOBAL = &ALLOC_GLOBAL_VALUE;
 
-Alloc ALLOC_STACK[256] = { ALLOC_GLOBAL_DEF, {0} };
-usz ALLOC_INDEX = 0;
+GLOBAL Alloc          ALLOC_GLOBAL_VALUE = ALLOC_GLOBAL_DEF;
+GLOBAL Alloc          *ALLOC_GLOBAL = &ALLOC_GLOBAL_VALUE;
+GLOBAL __thread Alloc ALLOC_STACK[256] = { ALLOC_GLOBAL_DEF, {0} };
+GLOBAL __thread usz   ALLOC_INDEX = 0;
 
 // TODO: maybe this'll be better as a pointer?
 #define ALLOC ALLOC_STACK[ALLOC_INDEX]
@@ -91,7 +91,7 @@ typedef struct {
     usz lastAllocSize;
 } Alloc_LinearExpadableData;
 
-ptr  LinearExpandable_alloc(Alloc *ap, usz size) {
+ptr LinearExpandable_alloc(Alloc *ap, usz size) {
     // TODO: zero out memory
 
     Alloc a = *ap;
