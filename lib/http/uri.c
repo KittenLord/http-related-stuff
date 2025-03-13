@@ -380,6 +380,21 @@ UriPath Uri_parsePathRootless(Stream *s, Alloc *alloc) {
     return path;
 }
 
+UriPath Uri_parsePathRootlessOrEmpty(Stream *s, Alloc *alloc) {
+    // NOTE: why the fuck didn't tests catch this
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c) || (isJust(c) && !Uri_isPchar(c.value))) {
+        UriPath path = {0};
+        path.type = URI_HIER_ABSOLUTE;
+        path.segmentCount = 1;
+        AllocateVarC(UriPathSegment, emptySegment, (UriPathSegment){ .segment = mkString("") }, alloc);
+        path.segments = emptySegment;
+        return path;
+    }
+    
+    return Uri_parsePathRootless(s, alloc);
+}
+
 UriPath Uri_parsePathNoscheme(Stream *s, Alloc *alloc) {
     UriPath path = Uri_parsePathRootlessOrNoscheme(s, alloc, true);
     path.type = URI_PATH_NOSCHEME;
@@ -551,19 +566,7 @@ UriHierarchyPart Uri_parseHier(Stream *s, Alloc *alloc) {
         else {
             // parse absolute (rootless or empty, because we popped the first slash)
             hier.type = URI_HIER_ABSOLUTE;
-
-            if(isNone(c) || (isJust(c) && Uri_isPchar(c.value))) {
-                UriPath path = {0};
-                path.type = URI_HIER_ABSOLUTE;
-                path.segmentCount = 1;
-                AllocateVarC(UriPathSegment, emptySegment, (UriPathSegment){ .segment = mkString("") }, alloc);
-                path.segments = emptySegment;
-                hier.path = path;
-
-                return hier;
-            }
-
-            UriPath absolutePath = Uri_parsePathRootless(s, alloc);
+            UriPath absolutePath = Uri_parsePathRootlessOrEmpty(s, alloc);
             if(isNone(absolutePath)) return fail(UriHierarchyPart, absolutePath.errmsg);
 
             absolutePath.type = URI_PATH_ABSOLUTE;
@@ -591,6 +594,14 @@ UriHierarchyPart Uri_parseHier(Stream *s, Alloc *alloc) {
     return fail(UriHierarchyPart, mkString("Unreachable" DEBUG_LOC));
 }
 
+MaybeString Uri_parseQuery(Stream *s, Alloc *alloc) {
+    return Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
+}
+
+MaybeString Uri_parseFragment(Stream *s, Alloc *alloc) {
+    return Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
+}
+
 Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     Uri uri = {0};
 
@@ -611,7 +622,7 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     c = stream_peekChar(s);
     if(isJust(c) && c.value == '?') {
         stream_popChar(s);
-        MaybeString query = Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
+        MaybeString query = Uri_parseQuery(s, alloc);
         if(isFail(query, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
         if(isNone(query)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
         uri.query = query.value;
@@ -620,7 +631,7 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     c = stream_peekChar(s);
     if(isJust(c) && c.value == '#') {
         stream_popChar(s);
-        MaybeString fragment = Uri_parsePcharRawString(s, alloc, false, mkString("@:/?"));
+        MaybeString fragment = Uri_parseFragment(s, alloc);
         if(isFail(fragment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
         if(isNone(fragment)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
         uri.fragment = fragment.value;

@@ -8,10 +8,7 @@
 
 #include <stream.h>
 
-typedef struct {
-    struct sockaddr_in addr;
-    int clientSock;
-} Connection;
+#include "http.c"
 
 // NOTE: Non-blocking might actually be better (will try
 // it out later [ideally I'll make the backend easily
@@ -25,10 +22,10 @@ void *threadRoutine(void *_connection) {
     stream_wbufferEnable(&s, 4096);
     stream_rbufferEnable(&s, 4096);
 
-    MaybeChar c;
-    while(isJust(c = stream_popChar(&s))) {
-        printf("%c", c.value);
-    }
+    Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC_GLOBAL);
+    printf("Method: %d\n", requestLine.method);
+    printf("HTTP/%d.%d\n", requestLine.version.major, requestLine.version.minor);
+    printf("Path: %d\n", requestLine.target.path.segmentCount);
 
     printf("helo\n");
     return null;

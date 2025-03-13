@@ -32,6 +32,12 @@ struct Stream {
     usz rbufferSize;
     usz rbufferConsumed;
 
+    bool wlimitEnabled;
+    isz wlimit;
+
+    bool rlimitEnabled;
+    isz rlimit;
+
     usz pos;
     usz col;
     usz row;
@@ -104,6 +110,16 @@ void stream_rbufferEnable(Stream *s, usz size) {
     s->rbuffer.len = size;
     s->rbufferSize = 0;
     s->rbufferConsumed = 0;
+}
+
+void stream_rlimitEnable(Stream *s, isz limit) {
+    s->rlimitEnabled = true;
+    s->rlimit = limit;
+}
+
+void stream_wlimitEnable(Stream *s, isz limit) {
+    s->rlimitEnabled = true;
+    s->wlimit = limit;
 }
 
 ResultWrite stream_writeRaw(Stream *s, Mem mem) {
@@ -195,21 +211,30 @@ ResultRead stream_readRaw(Stream *s, Mem mem) {
 ResultRead stream_read(Stream *s, Mem mem) {
     if(!s) return none(ResultRead);
 
+    Mem originalMem = mem;
+    if(s->rlimitEnabled && (s->rlimit <= 0 || s->rlimit < mem.len)) {
+        mem.len = s->rlimit >= 0 ? s->rlimit : 0;
+    }
+
     if(s->rbufferEnabled) {
         if(mem.len <= s->rbufferSize - s->rbufferConsumed) {
             mem_copy(mem, memIndex(s->rbuffer, s->rbufferConsumed));
             s->rbufferConsumed += mem.len;
-            return mkResultRead(mem.len, mem.len);
+
+            if(s->rlimitEnabled) { s->rlimit -= mem.len; }
+            return mkResultRead(originalMem.len, mem.len);
         }
         else {
-            usz intend = mem.len;
             Mem src = memIndex(s->rbuffer, s->rbufferConsumed);
             src = memLimit(src, s->rbufferSize - s->rbufferConsumed);
             mem_copy(mem, src);
 
             mem = memIndex(mem, src.len);
             ResultRead result = stream_readRaw(s, mem);
-            if(result.error) return result;
+            if(result.error) {
+                return result;
+            }
+
             usz bytesRead = result.read;
 
             s->rbufferConsumed = 0;
@@ -217,11 +242,14 @@ ResultRead stream_read(Stream *s, Mem mem) {
             if(!result.error) { s->rbufferSize = result.read; }
             else { s->rbufferSize = 0; }
 
-            return mkResultRead(intend, src.len + bytesRead);
+            if(s->rlimitEnabled) { s->rlimit -= src.len + bytesRead; }
+            return mkResultRead(originalMem.len, src.len + bytesRead);
         }
     }
     else {
-        return stream_readRaw(s, mem);
+        ResultRead result = stream_readRaw(s, mem);
+        if(s->rlimitEnabled) { s->rlimit -= result.read; }
+        return result;
     }
 }
 

@@ -63,7 +63,10 @@ bool sb_appendMem(StringBuilder *sb, Mem m) {
         return true;
     }
 
+    if(sb->dontExpand) return false;
+
     usz oldLen = sb->s.len;
+
     usz newCap = sb->cap * 2;
     if(newCap < sb->s.len + m.len) newCap = sb->s.len + m.len;
 
