@@ -4,6 +4,9 @@
 #include <http/uri.c>
 #include <stream.h>
 
+#define HTTP_CR 0x0D
+#define HTTP_LF 0x0A
+
 typedef enum {
     HTTPERR_INVALID_METHOD,
     HTTPERR_INVALID_OPTIONS_TARGET,
@@ -109,6 +112,21 @@ HttpMethod Http_parseMethod(Stream *s) {
     else { return HTTP_INVALID_METHOD; }
 }
 
+bool Http_parseCRLF(Stream *s) {
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c) || c.value != HTTP_CR) return false;
+    stream_popChar(s);
+    c = stream_peekChar(s);
+    if(isNone(c) || c.value != HTTP_LF) {
+        s->hasPeek = true;
+        s->peekChar = HTTP_CR;
+        return false;
+    }
+
+    stream_popChar(s);
+    return true;
+}
+
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     // NOTE: As recommended by RFC9112
     stream_rlimitEnable(s, 8000);
@@ -185,6 +203,8 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
         .version = version,
     };
 
+    result = Http_parseCRLF(s);
+    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
+
     return requestLine;
 }
-

@@ -23,9 +23,11 @@ void *threadRoutine(void *_connection) {
     stream_rbufferEnable(&s, 4096);
 
     Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC_GLOBAL);
+    MaybeChar c = stream_peekChar(&s);
     printf("Method: %d\n", requestLine.method);
     printf("HTTP/%d.%d\n", requestLine.version.major, requestLine.version.minor);
     printf("Path: %d\n", requestLine.target.path.segmentCount);
+    printf("Next: %c\n", c.value);
 
     printf("helo\n");
     return null;
