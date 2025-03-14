@@ -25,7 +25,7 @@ bool runeUtfTail(byte c) {
 
 bool runeUtf1(byte c0) {
     return
-    (c0 >= 0x00 && c0 <= 0x7F);
+    (/* c0 >= 0x00 && */ c0 <= 0x7F);
 }
 
 bool runeUtf2(byte c0, byte c1, u8 cap) {

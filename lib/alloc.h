@@ -20,10 +20,10 @@ struct Alloc {
     void *data;
 };
 
-ptr  malloc_alloc(Alloc *a, usz size) { return calloc(size, sizeof(byte)); }
-void malloc_free(Alloc *a, ptr p) { free(p); }
-void malloc_reset(Alloc *a) {}
-void malloc_kill(Alloc *a) {}
+ptr  malloc_alloc(Alloc *a, usz size) { a = a; return calloc(size, sizeof(byte)); }
+void malloc_free(Alloc *a, ptr p) { a = a; free(p); }
+void malloc_reset(Alloc *a) { a = a; }
+void malloc_kill(Alloc *a) { a = a; }
 
 #define ALLOC_GLOBAL_DEF (Alloc){ .alloc = malloc_alloc, .free = malloc_free, .reset = malloc_reset, .kill = malloc_kill }
 

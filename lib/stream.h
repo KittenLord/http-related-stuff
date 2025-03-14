@@ -212,7 +212,7 @@ ResultRead stream_read(Stream *s, Mem mem) {
     if(!s) return none(ResultRead);
 
     Mem originalMem = mem;
-    if(s->rlimitEnabled && (s->rlimit <= 0 || s->rlimit < mem.len)) {
+    if(s->rlimitEnabled && (s->rlimit <= 0 || (usz)s->rlimit < mem.len)) {
         mem.len = s->rlimit >= 0 ? s->rlimit : 0;
     }
 

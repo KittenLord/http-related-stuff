@@ -402,6 +402,8 @@ UriPath Uri_parsePathNoscheme(Stream *s, Alloc *alloc) {
 }
 
 UriHost Uri_parseHostIpLiteral(Stream *s, Alloc *alloc) {
+    s = s;
+    alloc = alloc;
     // TODO: implement
     return fail(UriHost, mkString("Non IPv4 IP literal parsing is not implemented yet" DEBUG_LOC));
 }

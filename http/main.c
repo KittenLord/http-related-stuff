@@ -39,6 +39,17 @@ void *threadRoutine(void *_connection) {
         iter = map_iter_next(iter);
     }
 
+    Http_writeStatusLine(&s, 1, 1, 404, mkString("kill yourself"));
+    stream_writeChar(&s, HTTP_CR);
+    stream_writeChar(&s, HTTP_LF);
+    stream_write(&s, mkString("Content-Length: 5"));
+    stream_writeChar(&s, HTTP_CR);
+    stream_writeChar(&s, HTTP_LF);
+    stream_writeChar(&s, HTTP_CR);
+    stream_writeChar(&s, HTTP_LF);
+    stream_write(&s, mkString("helo!"));
+    stream_writeFlush(&s);
+
     return null;
 }
 
@@ -50,7 +61,7 @@ int main(int argc, char **argv) {
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_port = htons(6969),
-        .sin_addr = htonl(INADDR_ANY)
+        .sin_addr = htonl(INADDR_ANY),
     };
     result = bind(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
     printf("BIND: %d\n", result);

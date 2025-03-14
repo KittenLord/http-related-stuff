@@ -165,7 +165,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     bool result;
 
     result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTP_INVALID_METHOD); }
+    if(!result) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
 
     MaybeChar c = stream_peekChar(s);
     if(isNone(c)) {
@@ -206,12 +206,12 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     }
 
     result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTP_INVALID_METHOD); }
+    if(!result) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
 
     HttpVersion version = {0};
     bool majorSet = false;
     String versionMask = mkString("HTTP/_._");
-    for(int i = 0; i < versionMask.len; i++) {
+    for(usz i = 0; i < versionMask.len; i++) {
         c = stream_popChar(s);
         if(isNone(c)) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
         if(versionMask.s[i] != '_' && c.value != versionMask.s[i]) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
@@ -238,7 +238,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
 }
 
 bool Http_isObsText(byte c) {
-    return c >= 0x80 && c <= '0xFF';
+    return c >= 0x80 /* && c <= 0xFF */ ;
 }
 
 bool Http_isVChar(byte c) {
@@ -251,12 +251,9 @@ bool Http_isFieldVChar(byte c) {
 }
 
 MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
-    usz lastNonWS = 0;
-    usz current = 0;
-    bool flushWS = false;
-
     StringBuilder ws = mkStringBuilderCap(32);
     StringBuilder sb = mkStringBuilderCap(32);
+    bool flushWS = false;
 
     MaybeChar c;
     while(isJust(c = stream_peekChar(s)) && (Http_isFieldVChar(c.value) || Http_isWS(c.value))) {
@@ -289,7 +286,7 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     MaybeString mfieldName = Http_parseToken(s, &ALLOC, 64);
     if(isNone(mfieldName)) { return HTTPERR_INVALID_FIELD_NAME; }
     String fieldName = mfieldName.value;
-    for(int i = 0; i < fieldName.len; i++) {
+    for(usz i = 0; i < fieldName.len; i++) {
         byte c = fieldName.s[i];
         if(c >= 'A' && c <= 'Z') { fieldName.s[i] = c - 'A' + 'a'; }
     }
@@ -317,4 +314,38 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     }
 
     return HTTPERR_SUCCESS;
+}
+
+String Http_getDefaultReasonPhrase(u16 statusCode) {
+    return mkString("hello");
+}
+
+bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String reasonPhrase) {
+    if(major > 9) return false;
+    if(minor > 9) return false;
+    if(statusCode < 100 || statusCode > 999) return false;
+
+    if(reasonPhrase.s == null) {
+        reasonPhrase = Http_getDefaultReasonPhrase(statusCode);
+    }
+
+    stream_write(s, mkString("HTTP/"));
+    stream_writeChar(s, major + '0');
+    stream_writeChar(s, '.');
+    stream_writeChar(s, minor + '0');
+
+    stream_writeChar(s, ' ');
+
+    u8 s0 = statusCode / 100;
+    u8 s1 = (statusCode % 100) / 10;
+    u8 s2 = (statusCode % 10);
+    stream_writeChar(s, s0 + '0');
+    stream_writeChar(s, s1 + '0');
+    stream_writeChar(s, s2 + '0');
+
+    stream_writeChar(s, ' ');
+
+    stream_write(s, reasonPhrase);
+    stream_writeFlush(s);
+    return true;
 }
