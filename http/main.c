@@ -23,13 +23,22 @@ void *threadRoutine(void *_connection) {
     stream_rbufferEnable(&s, 4096);
 
     Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC_GLOBAL);
-    MaybeChar c = stream_peekChar(&s);
-    printf("Method: %d\n", requestLine.method);
-    printf("HTTP/%d.%d\n", requestLine.version.major, requestLine.version.minor);
-    printf("Path: %d\n", requestLine.target.path.segmentCount);
-    printf("Next: %c\n", c.value);
+    Map headers = mkMapA(ALLOC_GLOBAL);
+    while(!Http_parseCRLF(&s)) {
+        HttpError result = Http_parseHeaderField(&s, &headers);
+        bool crlf = Http_parseCRLF(&s);
 
-    printf("helo\n");
+        printf("ERROR: %d\n", result);
+    }
+
+    MapIter *iter = map_iter(&headers);
+    while(!map_iter_end(iter)) {
+        printf("HEADER NAME: %s\n", iter->key.s);
+        printf("HEADER VALUE: %s\n", iter->val.s);
+        printf("-----------\n");
+        iter = map_iter_next(iter);
+    }
+
     return null;
 }
 

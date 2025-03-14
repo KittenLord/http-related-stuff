@@ -13,12 +13,27 @@ struct MapNode {
     MapNode *next;
 };
 
+typedef MapNode MapIter;
+
 typedef struct {
     MapNode *nodes;
     Alloc *alloc;
 } Map;
 
-#define mkMap(_alloc) ((Map){ .alloc = (_alloc) })
+#define mkMap() mkMapA(&ALLOC)
+#define mkMapA(_alloc) ((Map){ .alloc = (_alloc) })
+
+bool map_iter_end(MapNode *node) {
+    return node == null;
+}
+
+MapNode *map_iter_next(MapNode *node) {
+    return node->next;
+}
+
+MapNode *map_iter(Map *map) {
+    return map->nodes;
+}
 
 usz map_depth(MapNode *node) {
     usz result = 0;

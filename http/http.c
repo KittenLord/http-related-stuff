@@ -3,15 +3,21 @@
 
 #include <http/uri.c>
 #include <stream.h>
+#include <map.h>
 
 #define HTTP_CR 0x0D
 #define HTTP_LF 0x0A
 
 typedef enum {
+    HTTPERR_SUCCESS, // naming is my passion
+
     HTTPERR_INVALID_METHOD,
     HTTPERR_INVALID_OPTIONS_TARGET,
     HTTPERR_REQUEST_LINE_ERROR,
     HTTPERR_INVALID_REQUEST_TARGET_PATH,
+    HTTPERR_INVALID_FIELD_NAME,
+    HTTPERR_INVALID_HEADER_FIELD,
+    HTTPERR_INVALID_HEADER_FIELD_VALUE,
 } HttpError;
 
 typedef enum {
@@ -74,6 +80,9 @@ bool Http_parseAny(Stream *s, String list) {
     return success;
 }
 
+bool Http_isWS(byte c) { return c == ' ' || c == '\t'; }
+bool Http_parseWS(Stream *s) { return Http_parseAny(s, mkString(" \t")); }
+
 bool Http_isTokenChar(byte c) {
     return
     c == '!' || c == '#' ||
@@ -88,17 +97,36 @@ bool Http_isTokenChar(byte c) {
     (c >= 'A' && c <= 'Z');
 }
 
-HttpMethod Http_parseMethod(Stream *s) {
-    StringBuilder sb = mkStringBuilderCap(20);
+MaybeString Http_parseToken(Stream *s, Alloc *alloc, isz maxLen) {
+    StringBuilder sb = mkStringBuilderCap(maxLen <= 0 ? 32 : maxLen);
+    sb.alloc = alloc;
+    if(maxLen > 0) sb.dontExpand = true;
+
     MaybeChar c;
     while(isJust(c = stream_peekChar(s)) && Http_isTokenChar(c.value)) {
         stream_popChar(s);
         if(!sb_appendChar(&sb, c.value)) {
-            return HTTP_INVALID_METHOD;
+            return none(MaybeString);
         }
     }
 
-    String m = sb_build(sb);
+    if(sb.s.len == 0) { return none(MaybeString); }
+
+    String token = sb_build(sb);
+    return just(MaybeString, token);
+}
+
+bool Http_parseOne(Stream *s, byte c) {
+    MaybeChar mc = stream_peekChar(s);
+    if(isNone(mc) || mc.value != c) return false;
+    stream_popChar(s);
+    return true;
+}
+
+HttpMethod Http_parseMethod(Stream *s) {
+    MaybeString mm = Http_parseToken(s, &ALLOC, 20);
+    if(isNone(mm)) { return HTTP_INVALID_METHOD; }
+    String m = mm.value;
 
     if(false){}
     else if(mem_eq(mkString("GET"), m)) { return HTTP_GET; }
@@ -136,7 +164,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
 
     bool result;
 
-    result = Http_parseAny(s, mkString(" \t"));
+    result = Http_parseWS(s);
     if(!result) { return fail(Http11RequestLine, HTTP_INVALID_METHOD); }
 
     MaybeChar c = stream_peekChar(s);
@@ -177,7 +205,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
         // TODO: parse either uri authority, or an absolute-URI
     }
 
-    result = Http_parseAny(s, mkString(" \t"));
+    result = Http_parseWS(s);
     if(!result) { return fail(Http11RequestLine, HTTP_INVALID_METHOD); }
 
     HttpVersion version = {0};
@@ -207,4 +235,86 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
 
     return requestLine;
+}
+
+bool Http_isObsText(byte c) {
+    return c >= 0x80 && c <= '0xFF';
+}
+
+bool Http_isVChar(byte c) {
+    // https://datatracker.ietf.org/doc/html/rfc5234
+    return c >= 0x21 && c <= 0x7E;
+}
+
+bool Http_isFieldVChar(byte c) {
+    return Http_isVChar(c) || Http_isObsText(c);
+}
+
+MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
+    usz lastNonWS = 0;
+    usz current = 0;
+    bool flushWS = false;
+
+    StringBuilder ws = mkStringBuilderCap(32);
+    StringBuilder sb = mkStringBuilderCap(32);
+
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(s)) && (Http_isFieldVChar(c.value) || Http_isWS(c.value))) {
+        stream_popChar(s);
+        if(Http_isFieldVChar(c.value)) {
+            if(flushWS) {
+                flushWS = false;
+                sb_appendMem(&sb, sb_build(ws));
+                sb_reset(&ws);
+            }
+
+            sb_appendChar(&sb, c.value);
+        }
+        else {
+            flushWS = true;
+            sb_appendChar(&ws, c.value);
+        }
+    }
+
+    // reached unparseable character (presumably CRLF)
+    // OWS after the field-value, as defined by the spec, is already consumed
+
+    return just(MaybeString, sb_build(sb));
+}
+
+HttpError Http_parseHeaderField(Stream *s, Map *map) {
+    Alloc *alloc = map->alloc;
+    
+    // NOTE: I don't know any header longer than 64 chars lol
+    MaybeString mfieldName = Http_parseToken(s, &ALLOC, 64);
+    if(isNone(mfieldName)) { return HTTPERR_INVALID_FIELD_NAME; }
+    String fieldName = mfieldName.value;
+    for(int i = 0; i < fieldName.len; i++) {
+        byte c = fieldName.s[i];
+        if(c >= 'A' && c <= 'Z') { fieldName.s[i] = c - 'A' + 'a'; }
+    }
+
+    if(!Http_parseOne(s, ':')) { return HTTPERR_INVALID_HEADER_FIELD; }
+
+    Http_parseWS(s);
+
+    MaybeString mfieldValue = Http_parseHeaderFieldValue(s, alloc);
+    if(isNone(mfieldValue)) { return HTTPERR_INVALID_HEADER_FIELD_VALUE; }
+    String fieldValue = mfieldValue.value;
+
+    bool alreadyIs = map_has(map, fieldName);
+    if(!alreadyIs) {
+        map_set(map, fieldName, fieldValue);
+    }
+    else {
+        String oldValue = map_get(map, fieldName);
+        StringBuilder newSb = mkStringBuilderCap(oldValue.len + 1 + fieldValue.len);
+        sb_appendMem(&newSb, oldValue);
+        sb_appendChar(&newSb, ',');
+        sb_appendMem(&newSb, fieldValue);
+
+        map_set(map, fieldName, sb_build(newSb));
+    }
+
+    return HTTPERR_SUCCESS;
 }
