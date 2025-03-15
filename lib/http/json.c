@@ -9,6 +9,9 @@
 
 // TODO: replace JSON with Json
 
+#ifndef __LIB_JSON
+#define __LIB_JSON
+
 #include <types.h>
 #include <stream.h>
 
@@ -673,3 +676,5 @@ bool JSON_serialize(JsonValue value, Stream *s, bool doIndent) {
     if(isNone(value)) return false;
     return JSON_serializeValue(value, s, doIndent, 0);
 }
+
+#endif // __LIB_JSON

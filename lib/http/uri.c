@@ -1,8 +1,12 @@
+
+// NOTE: If I got it correctly, the RFC3986 only permits the character set that is used in US-ASCII, and everything else is to be encoded using percent-encodings, so this implementation uses char everywhere (as opposed to runes)
+
+#ifndef __LIB_URI
+#define __LIB_URI
+
 #include <types.h>
 #include <str.h>
 #include <macros.h>
-
-// NOTE: If I got it correctly, the RFC3986 only permits the character set that is used in US-ASCII, and everything else is to be encoded using percent-encodings, so this implementation uses char everywhere (as opposed to runes)
 
 typedef struct {
     byte a;
@@ -647,3 +651,5 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
 
     return uri;
 }
+
+#endif // __LIB_URI

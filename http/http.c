@@ -1,3 +1,6 @@
+#ifndef __LIB_HTTP
+#define __LIB_HTTP
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -346,6 +349,12 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String 
     stream_writeChar(s, ' ');
 
     stream_write(s, reasonPhrase);
+
+    stream_writeChar(s, HTTP_CR);
+    stream_writeChar(s, HTTP_LF);
+
     stream_writeFlush(s);
     return true;
 }
+
+#endif // __LIB_HTTP
