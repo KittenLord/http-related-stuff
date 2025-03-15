@@ -20,13 +20,13 @@ typedef struct {
     Map *headers;
 } RouteContext;
 
-typedef bool (*RouteCallback)(RouteContext *, Mem);
+typedef bool (RouteCallback)(RouteContext *, Mem);
 
 typedef struct Route Route;
 struct Route {
     String path;
 
-    RouteCallback callback;
+    RouteCallback *callback;
     Mem argument;
 
     usz accessing;
@@ -44,6 +44,8 @@ typedef struct {
 
     pthread_mutex_t *lock;
 } Router;
+
+Router router;
 
 Route *getRoute(Router *router, String path) {
     pthread_mutex_lock(router->lock);
@@ -99,7 +101,7 @@ bool deleteRoute(Router *router, String path) {
     return true;
 }
 
-void addRoute(Router *router, bool replace, String path, RouteCallback callback, Mem argument) {
+void addRoute(Router *router, bool replace, String path, RouteCallback *callback, Mem argument) {
     pthread_mutex_lock(router->lock);
 
     Route *route = router->routes;
@@ -115,16 +117,14 @@ void addRoute(Router *router, bool replace, String path, RouteCallback callback,
     }
 
     AllocateVarC(Route, newRoute, ((Route){0}), router->alloc);
-    Route *prev = route->prev;
-    Route *next = route->next;
 
     if(found) {
-        newRoute->prev = prev;
-        newRoute->next = next;
+        newRoute->prev = route->prev;
+        newRoute->next = route->next;
 
         pthread_mutex_lock(route->lock);
-        if(prev) prev->next = newRoute;
-        if(next) next->prev = newRoute;
+        if(route->prev) route->prev->next = newRoute;
+        if(route->next) route->next->prev = newRoute;
         if(route->accessing > 0) {
             route->next = router->routesDelete;
             router->routesDelete = route;
@@ -134,9 +134,13 @@ void addRoute(Router *router, bool replace, String path, RouteCallback callback,
         }
         pthread_mutex_unlock(route->lock);
     }
-    else {
+    else if(route != null) {
+        // `route` is the last in the list
         route->next = newRoute;
         newRoute->prev = route;
+    }
+    else {
+        router->routes = newRoute;
     }
 
     argument = mem_clone(argument, router->alloc);
@@ -147,11 +151,14 @@ void addRoute(Router *router, bool replace, String path, RouteCallback callback,
     newRoute->argument = argument;
     newRoute->accessing = 0;
 
-    // NOTE: I think `fastmutex` is what I think it is
     AllocateVarC(pthread_mutex_t, newRouteLock, ((pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER), router->alloc);
     newRoute->lock = newRouteLock;
 
     pthread_mutex_unlock(router->lock);
+}
+
+bool testCallback(RouteContext *context, Mem _) {
+    printf("helo\n");
 }
 
 // NOTE: Non-blocking might actually be better (will try
@@ -174,6 +181,19 @@ void *threadRoutine(void *_connection) {
 
         printf("ERROR: %d\n", result);
     }
+
+    // TODO: we have the headers, including the Host, now
+    // we reconstruct the target URI and parse it
+
+    // TODO: with the target URI reconstructed, we can now,
+    // *gulp*, convert the path+query back into a string to
+    // feed to the router
+    // Should I extend the Uri/UriPath structs to include a
+    // string representation? I probably should
+
+    Route *route = getRoute(&router, mkString("/"));
+    RouteContext context = {0};
+    route->callback(&context, route->argument);
 
     MapIter *iter = map_iter(&headers);
     while(!map_iter_end(iter)) {
@@ -212,6 +232,16 @@ int main(int argc, char **argv) {
     printf("LISTEN: %d\n", result);
 
     ALLOC_INDEX = 69;
+
+    pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
+    router = (Router){
+        .alloc = ALLOC_GLOBAL,
+        .routes = null,
+        .routesDelete = null,
+        .lock = &routerLock,
+    };
+
+    addRoute(&router, false, mkString("/"), testCallback, memnull);
 
     while(true) {
         struct sockaddr_in caddr = {0};
