@@ -16,11 +16,14 @@
 // prototype
 
 typedef struct {
+    Stream *s;
+    Map *headers;
 } RouteContext;
 
-typedef bool (*)(RouteContext *, Mem) RouteCallback;
+typedef bool (*RouteCallback)(RouteContext *, Mem);
 
-typedef struct {
+typedef struct Route Route;
+struct Route {
     String path;
 
     RouteCallback callback;
@@ -31,7 +34,7 @@ typedef struct {
 
     Route *prev;
     Route *next;
-} Route;
+};
 
 typedef struct {
     Alloc *alloc;
@@ -145,7 +148,7 @@ void addRoute(Router *router, bool replace, String path, RouteCallback callback,
     newRoute->accessing = 0;
 
     // NOTE: I think `fastmutex` is what I think it is
-    AllocateVarC(pthread_mutex_t, newRouteLock, fastmutex, router->alloc);
+    AllocateVarC(pthread_mutex_t, newRouteLock, ((pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER), router->alloc);
     newRoute->lock = newRouteLock;
 
     pthread_mutex_unlock(router->lock);
