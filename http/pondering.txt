@@ -1,0 +1,139 @@
+The thing is, I'm not entirely sure what a good design
+for a router should be
+
+At first I thought to make it simply match the target
+URI path, but after sleeping I remembered that the whole
+subdomain thing exists - and furthermore, that the Host
+header may simply contain an IPv4 (or IPv6 for that matter
+address), and make everything even harder
+
+From what I've gathered, this is usually indeed set up via
+a reverse proxy, which transforms a request to a subdomain
+into a request to an internal server. With this project I
+want to make that an option, but also to allow for a single
+server to handle requests to any of the subdomains (i.e.
+without a dedicated proxy)
+
+So, my current considerations are the following:
+
+- How do you match on the host
+    - What to do if an IP is provided, instead of the host name
+- How do design an API around Host matching
+    - Sensible defaults when Host matching is not considered
+    - Just in general how to go about it
+
+Router r = {0};
+acceptHostDefault(&r, "123.456.123.456"); // IP provided in config
+acceptHostDefault(&r, "example.com"); // domain provided in config
+// acceptHost(&r, "subdomain.example.com");
+
+addRoute(&r, "/", callback);
+addRoute(&r, "/home", callback);
+addRouteSubdomain(&r, "subdomain", "/home", callback);
+
+It also might be useful to redirect every request to a subdomain to
+a separate router
+
+Router sr = {0};
+acceptHostDefault(&sr, "subdomain.example.com");
+addRoute(&sr, "/", callback);
+addRouteSubdomain(&r, "subdomain", &sr); // obviously it will be named differently
+
+So this implies that multiple routing strategies will be
+useful
+
+- A simple comparison a la
+    if Host == route.subdomain ++ router.defaultDomain &&
+       path == router.pathPrefix ++ route.path {
+           route.execute()
+       }
+- A delegation to a different router if the subdomain (or path) prefix
+  matches
+  In this case the comparison is literally the same, the only thing
+  that changes is the route.execute() thingy
+
+Therefore
+
+- A general comparison scheme where we construct the domain and
+  path prefixes, match on the received data (either strictly equal,
+  or strictly prefix/postfix [need to consider ports]) is enough for all
+  reasonable needs (we miiight maaaaybe also allow for a custom
+  function pointer, i.e. a custom predicate, but I'm not sure this
+  makes sense here, C is not Haskell [for better or for worse])
+- There are multiple useful strategies for routing a request, being:
+    - A function pointer
+    - A different router
+    - Same router, but different arguments? (would 3xx be better?)
+  but, in fact, they all are easily representable via the function
+  pointer approach, and since it is essential to how I view the
+  project (i.e. it's not an overly general solution that I might be
+  reluctant to add), it's all fine
+
+There's also a question of: what the fuck do we do when the last path
+segment is empty? i.e. distinction between "/home" and "/home/". There's
+also a more general questions of what to do with path with multiple
+empty segments, or even more generally - with any unrecognized path?
+
+A reasonable solution is probably to add a separate handler for all
+unrecognized paths (maybe redirect to "/" by default?)
+
+When a specific sub-path is unrecognized (for example, "/product/bad_id"),
+I guess the whole "strict prefix" thing can be used... It would be cool
+to allow for smth like "/product/{id}", and get a hashmap with the "id"
+key, but I'm not entirely sure about it
+
+Actually, the "/product/{id}" thing is probably indeed necessary, because
+it is functionally different from simply prefix matching - it assures
+that there are only 2 path segments total
+
+Let's consider an example
+
+RouterMain:
+"/home" -> homePageHandler
+"/product/*" -> RouterProduct
+
+RouterProduct:
+"/" -> RouterMain "/home"
+"/{id}" -> productHandler
+"/{id}/details" -> productDetailsHandler
+
+1. This is one more reason to ignore the trailing empty segments
+2. Yeah matching a url segment is indeed a good idea
+
+Also it's probably a good idea to allow to call a router with an argument
+of some sorts - consider the following
+
+RouterMain:
+"/en/*" -> RouterContent english
+"/de/*" -> RouterContent german
+"/*" -> RouterContent (tries to do content negotiation if not configured by above)
+
+And if we're being specific, such "argument" is to be passed to a request
+handler, so a question arises - what if multiple arguments will be passed
+like this? Maybe yet another hashmap? Most likely, yeah
+
+So, let's sum up
+
+1. A router has a defaultHost, and probably a map from IP addresses to hosts
+2. A router also has a pathPrefix
+3. Each route has a subdomain and a path
+4. A request comes with a Host header and a Path
+5. Router takes a route, calculates (pathPrefix ++ path), (subdomain ++ defaultHost)
+6. Checks if they match the request Path and Host, if yes, do what the route says
+7. Otherwise, do this for the remaining routes
+8. If none match, but the host matched at least once (or specifically whitelist
+   subdomains?), respond with a not found behavior
+9. If none match, and the host is completely irrelevant, the request is bad
+
+The algorithm for matching paths is quite straightforward - it's even possible
+to allow for a path segment to be "*", as long as it is not the very last segment
+
+To allow escaping the { and } in a path segment, maybe just do {{ and }} or smth
+
+Oh and I guess a similar thing with pattern matching on a subdomain using {} might
+be useful, but it'll be identical in behavior
+
+Okay, there's actually just one more thing - what about the port? It's not difficult
+with IP mapping, but what if we get a reg-name AND a port? Ehhh, I guess that just
+falls under the same thing as IP mapping, just reg-name + port mapping (or any
+string mapping for that matter, but that has security consequences)
