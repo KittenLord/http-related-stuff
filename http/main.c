@@ -22,15 +22,97 @@ typedef struct {
 
 typedef bool (RouteCallback)(RouteContext *, Mem);
 
+typedef struct RoutePath RoutePath;
+struct RoutePath {
+    bool error;
+
+    String segment;
+    bool isMatch; // match a single segment
+    bool isWildcard; // match all (or none) remaining segments
+
+    RoutePath *next;
+};
+
+RoutePath BAD_ROUTE_PATH = { .error = true };
+
+MaybeString parseRoutePathMatch(Stream *s, Alloc *alloc) {
+    stream_popChar(s);
+    StringBuilder sb = mkStringBuilder();
+    sb.alloc = alloc;
+    MaybeChar c;
+
+    while(isJust(c = stream_peekChar(s)) && c.value != '}') {
+        if(c.value == '/') { return none(MaybeString); }
+        sb_appendChar(&sb, c.value);
+        stream_popChar(s);
+    }
+
+    if(isNone(c)) return none(MaybeString);
+    stream_popChar(s);
+    c = stream_peekChar(s);
+    if(isJust(c) && c.value != '/') return none(MaybeString);
+    return just(MaybeString, sb_build(sb));
+}
+
+RoutePath *parseRoutePath(Stream *s, Alloc *alloc) {
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c)) return null;
+    if(c.value != '/') return &BAD_ROUTE_PATH;
+    stream_popChar(s);
+
+    c = stream_peekChar(s);
+    if(isNone(c)) return null;
+
+    RoutePath segment = {0};
+
+    if(c.value == '{') {
+        MaybeString matchSegment = parseRoutePathMatch(s, alloc);
+        if(isNone(matchSegment)) return &BAD_ROUTE_PATH;
+
+        segment.segment = matchSegment.value;
+        segment.isMatch = true;
+    }
+    else {
+        StringBuilder sb = mkStringBuilder();
+        sb.alloc = alloc;
+
+        // TODO: Most of these allocations are completely unnecessary,
+        // as long as the lifetime of the string behind the stream is
+        // the same as the supposed return value of this... I need to
+        // spend some time thinking about this in general, it's not
+        // like we benefit from the stream being opaque here...
+
+        while(isJust(c = stream_peekChar(s)) && c.value != '/') {
+            sb_appendChar(&sb, c.value);
+            stream_popChar(s);
+        }
+
+        segment.segment = sb_build(sb);
+    }
+
+    RoutePath *next = parseRoutePath(s, alloc);
+    if(next != null && isNone(*next)) return &BAD_ROUTE_PATH;
+
+    segment.next = next;
+
+    if(next == null && segment.segment.len == 1 && segment.segment.s[0] == '*') {
+        segment.isWildcard = true;
+    }
+
+    AllocateVarC(RoutePath, ret, segment, alloc);
+    return ret;
+}
+
 typedef struct Route Route;
 struct Route {
-    String path;
+    String subdomain;
+    RoutePath *path;
 
     RouteCallback *callback;
     Mem argument;
 
-    usz accessing;
-    pthread_mutex_t *lock;
+    // usz accessing;
+    // pthread_mutex_t *lock;
 
     Route *prev;
     Route *next;
@@ -40,121 +122,82 @@ typedef struct {
     Alloc *alloc;
 
     Route *routes;
-    Route *routesDelete; // pediodically freed
-
-    pthread_mutex_t *lock;
+    // Route *routesDelete; // pediodically freed
+    //
+    // pthread_mutex_t *lock;
 } Router;
 
 Router router;
 
-Route *getRoute(Router *router, String path) {
-    pthread_mutex_lock(router->lock);
+bool routePathMatches(RoutePath *routePath, UriPath uriPathS) {
+    UriPathSegment *uriPath = uriPathS.segments;
 
-    Route *route = router->routes;
+    while(uriPath != null && routePath != null) {
+        printf("URI: %s, ROUTE: %s\n", uriPath->segment.s, routePath->segment.s);
+
+        if(routePath->isWildcard) return true; // all previous segments matched
+
+        if(!routePath->isMatch && !mem_eq(routePath->segment, uriPath->segment)) {
+            return false;
+        }
+
+        uriPath = uriPath->next;
+        routePath = routePath->next;
+    }
+
+    if(uriPath == null && routePath != null && routePath->isWildcard) {
+        return true;
+    }
+
+    if(routePath == null && (uriPath == null || (uriPath->segment.len == 0 && uriPath->next == null))) {
+        // last empty segment is ignored
+        return true;
+    }
+
+    return false;
+}
+
+Route *getRoute(Router *r, String host, UriPath path) {
+    Route *route = r->routes;
     while(route != null) {
-        if(mem_eq(route->path, path)) { break; }
+        if(routePathMatches(route->path, path)) break;
         route = route->next;
     }
 
-    if(route != null) {
-        pthread_mutex_lock(route->lock);
-        route->accessing += 1;
-        pthread_mutex_unlock(route->lock);
-    }
+    if(route == null) return route;
 
-    pthread_mutex_unlock(router->lock);
     return route;
 }
 
-void freeRoute(Router *router, Route *route) {
-    if(router == null) return;
-    if(route == null) return;
-    FreeC(router->alloc, route->path.s);
-    FreeC(router->alloc, route->argument.s);
-    FreeC(router->alloc, route->lock);
-}
+void addRoute(Router *r, String host, String path, RouteCallback callback, Mem arg) {
+    Stream s = mkStreamStr(path);
+    RoutePath *routePath = parseRoutePath(&s, r->alloc);
 
-bool deleteRoute(Router *router, String path) {
-    pthread_mutex_lock(router->lock);
+    // TODO: signal error
+    if(routePath == &BAD_ROUTE_PATH) return;
 
-    Route *route = router->routes;
-    while(route != null) {
-        if(mem_eq(route->path, path)) { break; }
-        route = route->next;
-    }
+    Route routeS = {
+        .subdomain = host,
+        .path = routePath,
+        .callback = callback,
+        .argument = arg,
+    };
 
-    if(route == null) { return false; }
+    AllocateVarC(Route, route, routeS, r->alloc);
 
-    pthread_mutex_lock(route->lock);
-    if(route->prev) route->prev->next = route->next;
-    if(route->next) route->next->prev = route->prev;
-    if(route->accessing > 0) {
-        route->next = router->routesDelete;
-        router->routesDelete = route;
-    }
-    else {
-        freeRoute(router, route);
-    }
-    pthread_mutex_unlock(route->lock);
-
-    pthread_mutex_unlock(router->lock);
-    return true;
-}
-
-void addRoute(Router *router, bool replace, String path, RouteCallback *callback, Mem argument) {
-    pthread_mutex_lock(router->lock);
-
-    Route *route = router->routes;
-    bool found = false;
-    while(route != null && route->next != null) {
-        if(mem_eq(route->path, path)) { found = true; break; }
-        route = route->next;
-    }
-
-    if(found && !replace) {
-        pthread_mutex_unlock(router->lock);
+    if(r->routes == null) {
+        r->routes = route;
         return;
     }
 
-    AllocateVarC(Route, newRoute, ((Route){0}), router->alloc);
-
-    if(found) {
-        newRoute->prev = route->prev;
-        newRoute->next = route->next;
-
-        pthread_mutex_lock(route->lock);
-        if(route->prev) route->prev->next = newRoute;
-        if(route->next) route->next->prev = newRoute;
-        if(route->accessing > 0) {
-            route->next = router->routesDelete;
-            router->routesDelete = route;
-        }
-        else {
-            freeRoute(router, route);
-        }
-        pthread_mutex_unlock(route->lock);
-    }
-    else if(route != null) {
-        // `route` is the last in the list
-        route->next = newRoute;
-        newRoute->prev = route;
-    }
-    else {
-        router->routes = newRoute;
+    Route *parent = r->routes;
+    while(parent->next != null) {
+        parent = parent->next;
     }
 
-    argument = mem_clone(argument, router->alloc);
-    path = mem_clone(path, router->alloc);
-
-    newRoute->path = path;
-    newRoute->callback = callback;
-    newRoute->argument = argument;
-    newRoute->accessing = 0;
-
-    AllocateVarC(pthread_mutex_t, newRouteLock, ((pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER), router->alloc);
-    newRoute->lock = newRouteLock;
-
-    pthread_mutex_unlock(router->lock);
+    parent->next = route;
+    route->prev = parent;
+    return;
 }
 
 bool testCallback(RouteContext *context, Mem _) {
@@ -191,7 +234,12 @@ void *threadRoutine(void *_connection) {
     // Should I extend the Uri/UriPath structs to include a
     // string representation? I probably should
 
-    Route *route = getRoute(&router, mkString("/"));
+    Route *route = getRoute(&router, mkString(""), requestLine.target.path);
+    if(route == null) {
+        printf("invalid route\n");
+        return null;
+    }
+
     RouteContext context = {0};
     route->callback(&context, route->argument);
 
@@ -203,7 +251,7 @@ void *threadRoutine(void *_connection) {
         iter = map_iter_next(iter);
     }
 
-    Http_writeStatusLine(&s, 1, 1, 404, mkString("kill yourself"));
+    Http_writeStatusLine(&s, 1, 1, 404, mkString("aboba"));
     stream_write(&s, mkString("Content-Length: 5"));
     stream_writeChar(&s, HTTP_CR);
     stream_writeChar(&s, HTTP_LF);
@@ -233,15 +281,17 @@ int main(int argc, char **argv) {
 
     ALLOC_INDEX = 69;
 
-    pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
+    // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
     router = (Router){
         .alloc = ALLOC_GLOBAL,
         .routes = null,
-        .routesDelete = null,
-        .lock = &routerLock,
+        // .routesDelete = null,
+        // .lock = &routerLock,
     };
 
-    addRoute(&router, false, mkString("/"), testCallback, memnull);
+    addRoute(&router, mkString("host"), mkString("/home"), testCallback, memnull);
+    addRoute(&router, mkString("host"), mkString("/test/"), testCallback, memnull);
+    addRoute(&router, mkString("host"), mkString("/a/{test}/b/*"), testCallback, memnull);
 
     while(true) {
         struct sockaddr_in caddr = {0};

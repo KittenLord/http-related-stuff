@@ -137,3 +137,13 @@ Okay, there's actually just one more thing - what about the port? It's not diffi
 with IP mapping, but what if we get a reg-name AND a port? Ehhh, I guess that just
 falls under the same thing as IP mapping, just reg-name + port mapping (or any
 string mapping for that matter, but that has security consequences)
+
+Now the only question remaining, I think, is how to represent all of this
+
+In terms of a route definition, a path is a list of segments, some of which may
+be wildcards, and the path itself might represent a prefix, rather than an exact
+path
+
+I guess we just go for another linked list (like the URI path definition) and call
+it a day. Tbh I'm fairly sure that linked list here is a terrible idea (as it is
+in general), but I don't wanna bother with dynamic arrays (C is a great language btw)
