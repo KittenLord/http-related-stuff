@@ -93,23 +93,33 @@ typedef struct {
 #define mkResultWrite(intend, real) ((ResultWrite){ .written = (real), .partial = (real) < (intend) })
 #define mkResultRead(intend, real) ((ResultRead){ .read = (real), .partial = (real) < (intend) })
 
-void stream_wbufferEnable(Stream *s, usz size) {
+void stream_wbufferEnableC(Stream *s, Mem buffer) {
     if(s->wbufferEnabled) return;
 
     s->wbufferEnabled = true;
-    s->wbuffer.s = AllocateBytes(size);
-    s->wbuffer.len = size;
+    s->wbuffer = buffer;
     s->wbufferTaken = 0;
+}
+
+void stream_wbufferEnable(Stream *s, usz size) {
+    if(s->wbufferEnabled) return;
+    void *bytes = AllocateBytes(size);
+    stream_wbufferEnableC(s, mkMem(bytes, size));
+}
+
+void stream_rbufferEnableC(Stream *s, Mem buffer) {
+    if(s->rbufferEnabled) return;
+
+    s->rbufferEnabled = true;
+    s->rbuffer = buffer;
+    s->rbufferSize = 0;
+    s->rbufferConsumed = 0;
 }
 
 void stream_rbufferEnable(Stream *s, usz size) {
     if(s->rbufferEnabled) return;
-
-    s->rbufferEnabled = true;
-    s->rbuffer.s = AllocateBytes(size);
-    s->rbuffer.len = size;
-    s->rbufferSize = 0;
-    s->rbufferConsumed = 0;
+    void *bytes = AllocateBytes(size);
+    stream_rbufferEnableC(s, mkMem(bytes, size));
 }
 
 void stream_rlimitEnable(Stream *s, isz limit) {

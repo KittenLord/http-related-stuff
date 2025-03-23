@@ -7,7 +7,10 @@
 #include <http/json.c>
 
 int main() {
-    Stream s = mkStreamStr(mkString("-9223372036854775807"));
+    FILE *testJson = fopen("test.json", "r");
+    int testJsonFd = fileno(testJson);
+
+    Stream s = mkStreamFd(testJsonFd);
 
     JsonValue value;
     Alloc resultAlloc = mkAlloc_LinearExpandable();

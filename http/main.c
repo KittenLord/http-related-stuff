@@ -65,6 +65,8 @@ RoutePath *parseRoutePath(Stream *s, Alloc *alloc) {
 
     RoutePath segment = {0};
 
+    // TODO: allow for escaped '{' and '}'
+
     if(c.value == '{') {
         MaybeString matchSegment = parseRoutePathMatch(s, alloc);
         if(isNone(matchSegment)) return &BAD_ROUTE_PATH;
@@ -126,6 +128,50 @@ typedef struct {
     //
     // pthread_mutex_t *lock;
 } Router;
+
+typedef struct {
+    Alloc *alloc;
+
+    UriPath basePath;
+} FileTreeRouter;
+
+Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
+    UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, &ALLOC);
+    if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
+
+    StringBuilder sb = mkStringBuilder();
+    UriPathSegment *segment = result.segments;
+    while(segment != null) {
+        sb_appendMem(&sb, segment->segment);
+        if(segment->next != null) {
+            sb_appendChar(&sb, '/');
+        }
+
+        segment = segment->next;
+    }
+
+    FILE *file = fopen(sb_build(sb).s, "r");
+    if(file == null) return memnull;
+
+    int fd = fileno(file);
+    sb.s.len = 0;
+
+    byte rbuffer[1024];
+    byte wbuffer[1024];
+
+    Stream fileStream = mkStreamFd(fd);
+    stream_rbufferEnableC(&fileStream, mkMem(rbuffer, 1024));
+
+    Stream resultStream = mkStreamSb(&sb);
+    stream_wbufferEnableC(&resultStream, mkMem(wbuffer, 1024));
+
+    MaybeChar c;
+    while(isJust(c = stream_popChar(&fileStream))) {
+        stream_writeChar(&resultStream, c.value);
+    }
+
+    return sb_build(sb);
+}
 
 Router router;
 
@@ -200,9 +246,20 @@ void addRoute(Router *r, String host, String path, RouteCallback callback, Mem a
     return;
 }
 
-bool testCallback(RouteContext *context, Mem _) {
+#define ROUTER_CALLBACK(name,  body) \
+bool name(RouteContext *context, Mem arg) { body; }
+
+#define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
+bool name(RouteContext *context, Mem arg) { argty argname = *(argty *)arg.s; { body; } }
+
+ROUTER_CALLBACK(testCallback, {
     printf("helo\n");
-}
+    return false;
+})
+
+ROUTER_CALLBACK_ARG(fileTreeCallback, usz, fileTree, {
+    return true;
+});
 
 // NOTE: Non-blocking might actually be better (will try
 // it out later [ideally I'll make the backend easily
@@ -289,9 +346,7 @@ int main(int argc, char **argv) {
         // .lock = &routerLock,
     };
 
-    addRoute(&router, mkString("host"), mkString("/home"), testCallback, memnull);
-    addRoute(&router, mkString("host"), mkString("/test/"), testCallback, memnull);
-    addRoute(&router, mkString("host"), mkString("/a/{test}/b/*"), testCallback, memnull);
+    addRoute(&router, mkString("host"), mkString("/*"), testCallback, memnull);
 
     while(true) {
         struct sockaddr_in caddr = {0};

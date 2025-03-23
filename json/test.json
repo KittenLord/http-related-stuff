@@ -1,0 +1,13 @@
+{
+    "int": 15,
+    "anotherInt": -9999,
+    "string": "string",
+    "array": [ 1, 2, "", -5 ],
+    "object": {
+        "int": 15,
+        "anotherInt": -9999,
+        "string": "string",
+        "array": [ 1, 2, "", -5 ],
+        "null": null
+    }
+}

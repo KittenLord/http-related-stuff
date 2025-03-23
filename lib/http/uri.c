@@ -652,4 +652,90 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     return uri;
 }
 
+UriPath Uri_pathMoveRelatively(UriPath base, UriPath move, Alloc *alloc) {
+    UriPath result = { 
+        .segmentCount = 0,
+        .segments = null,
+    };
+
+    usz count = 0;
+
+    UriPathSegment *copy = base.segments;
+    UriPathSegment *paste = null;
+    while(copy != null) {
+        String segmentValue = mem_clone(copy->segment, alloc);
+        AllocateVarC(UriPathSegment, segment, ((UriPathSegment){ .segment = segmentValue }), alloc);
+        count += 1;
+        if(paste == null) {
+            paste = segment;
+            result.segments = segment;
+        }
+        else {
+            paste->next = segment;
+            paste = paste->next;
+        }
+
+        copy = copy->next;
+    }
+
+    copy = move.segments;
+    while(copy != null) {
+        if(copy->segment.len == 1 && copy->segment.s[0] == '.') {
+
+        }
+        else if(copy->segment.len == 2 && copy->segment.s[0] == '.' && copy->segment.s[1] == '.' && count != 0) {
+            count -= 1;
+            FreeC(alloc, paste->segment.s);
+            FreeC(alloc, paste);
+
+            if(count == 0) {
+                result.segments = null;
+                paste = null;
+            }
+            else {
+                paste = result.segments;
+
+                // NOTE: we have at least 2 elements in this branch
+                while(paste->next->next != null) {
+                    paste = paste->next;
+                }
+
+                paste->next = null;
+            }
+        }
+        else {
+            count += 1;
+            String segmentValue = mem_clone(copy->segment, alloc);
+            AllocateVarC(UriPathSegment, segment, ((UriPathSegment){ .segment = segmentValue }), alloc);
+
+            if(paste == null) {
+                paste = segment;
+                result.segments = segment;
+            }
+            else {
+                paste->next = segment;
+                paste = paste->next;
+            }
+        }
+
+        copy = copy->next;
+    }
+
+    result.segmentCount = count;
+    return result;
+}
+
+bool Uri_pathHasPrefix(UriPath prefix, UriPath path) {
+    UriPathSegment *p = prefix.segments;
+    UriPathSegment *c = path.segments;
+
+    while(p != null && c != null) {
+        if(!mem_eq(p->segment, c->segment)) return false;
+        p = p->next;
+        c = c->next;
+    }
+
+    return p == null;
+}
+
 #endif // __LIB_URI
