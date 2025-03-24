@@ -304,7 +304,24 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
         return false;
     }
 
-    printf("FILE READ: %s\n", file.s);
+    printf("GOOD FILE\n");
+
+    // printf("FILE READ: %s\n", file.s);
+
+    Http_writeStatusLine(context->s, 1, 1, 200, mkString("aboba"));
+    stream_write(context->s, mkString("Content-Length: "));
+
+    byte contentLength[32] = {0};
+    sprintf(contentLength, "%d", file.len);
+    stream_write(context->s, mkString(contentLength));
+
+    stream_writeChar(context->s, HTTP_CR);
+    stream_writeChar(context->s, HTTP_LF);
+    stream_writeChar(context->s, HTTP_CR);
+    stream_writeChar(context->s, HTTP_LF);
+    stream_write(context->s, file);
+    stream_writeFlush(context->s);
+
     return true;
 });
 
@@ -361,14 +378,14 @@ void *threadRoutine(void *_connection) {
         iter = map_iter_next(iter);
     }
 
-    Http_writeStatusLine(&s, 1, 1, 404, mkString("aboba"));
-    stream_write(&s, mkString("Content-Length: 5"));
-    stream_writeChar(&s, HTTP_CR);
-    stream_writeChar(&s, HTTP_LF);
-    stream_writeChar(&s, HTTP_CR);
-    stream_writeChar(&s, HTTP_LF);
-    stream_write(&s, mkString("helo!"));
-    stream_writeFlush(&s);
+    // Http_writeStatusLine(&s, 1, 1, 404, mkString("aboba"));
+    // stream_write(&s, mkString("Content-Length: 5"));
+    // stream_writeChar(&s, HTTP_CR);
+    // stream_writeChar(&s, HTTP_LF);
+    // stream_writeChar(&s, HTTP_CR);
+    // stream_writeChar(&s, HTTP_LF);
+    // stream_write(&s, mkString("helo!"));
+    // stream_writeFlush(&s);
 
     return null;
 }
@@ -391,8 +408,6 @@ int main(int argc, char **argv) {
     result = listen(sock, 128);
     printf("LISTEN: %d\n", result);
 
-    FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"));
-
     // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
     router = (Router){
         .alloc = ALLOC_GLOBAL,
@@ -401,6 +416,7 @@ int main(int argc, char **argv) {
         // .lock = &routerLock,
     };
 
+    FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"));
     addRoute(&router, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(ftrouter));
     addRoute(&router, mkString("host"), mkString("/*"), testCallback, memnull);
 
