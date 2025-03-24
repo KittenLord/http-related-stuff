@@ -18,6 +18,8 @@
 typedef struct {
     Stream *s;
     Map *headers;
+    UriPath originalPath;
+    UriPath relatedPath;
 } RouteContext;
 
 typedef bool (RouteCallback)(RouteContext *, Mem);
@@ -135,6 +137,22 @@ typedef struct {
     UriPath basePath;
 } FileTreeRouter;
 
+FileTreeRouter mkFileTreeRouter(String spath) {
+    Alloc *alloc = &ALLOC;
+    Stream s = mkStreamStr(spath);
+    UriPath path = Uri_parsePathRootless(&s, alloc);
+    // if(isJust(stream_peekChar(&s))) {
+    //     // NOTE: error
+    // }
+
+    FileTreeRouter ftrouter = {
+        .alloc = alloc,
+        .basePath = path,
+    };
+
+    return ftrouter;
+}
+
 Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, &ALLOC);
     if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
@@ -169,6 +187,8 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     while(isJust(c = stream_popChar(&fileStream))) {
         stream_writeChar(&resultStream, c.value);
     }
+    
+    stream_writeFlush(&resultStream);
 
     return sb_build(sb);
 }
@@ -203,14 +223,34 @@ bool routePathMatches(RoutePath *routePath, UriPath uriPathS) {
     return false;
 }
 
-Route *getRoute(Router *r, String host, UriPath path) {
+Route *getRoute(Router *r, RouteContext *context) {
     Route *route = r->routes;
     while(route != null) {
-        if(routePathMatches(route->path, path)) break;
+        if(routePathMatches(route->path, context->relatedPath)) break;
         route = route->next;
     }
 
     if(route == null) return route;
+
+    // TODO: we've found the route, fill the context
+    // with all pattern matched path segments, chop
+    // off the matched part of the path (for routes
+    // that end with /*), etc
+
+    RoutePath *routePath = route->path;
+    UriPath relatedPath = context->relatedPath;
+
+    while(routePath != null) {
+        if(routePath->isWildcard) {
+            break;
+        }
+
+        routePath = routePath->next;
+        relatedPath.segments = relatedPath.segments->next;
+        relatedPath.segmentCount -= 1;
+    }
+
+    context->relatedPath = relatedPath;
 
     return route;
 }
@@ -250,14 +290,21 @@ void addRoute(Router *r, String host, String path, RouteCallback callback, Mem a
 bool name(RouteContext *context, Mem arg) { body; }
 
 #define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { argty argname = *(argty *)arg.s; { body; } }
+bool name(RouteContext *context, Mem arg) { argty* argname = (argty *)arg.s; { body; } }
 
 ROUTER_CALLBACK(testCallback, {
     printf("helo\n");
     return false;
 })
 
-ROUTER_CALLBACK_ARG(fileTreeCallback, usz, fileTree, {
+ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
+    Mem file = getFile(fileTree, context->relatedPath);
+    if(file.s == null) {
+        printf("BAD FILE\n");
+        return false;
+    }
+
+    printf("FILE READ: %s\n", file.s);
     return true;
 });
 
@@ -291,13 +338,19 @@ void *threadRoutine(void *_connection) {
     // Should I extend the Uri/UriPath structs to include a
     // string representation? I probably should
 
-    Route *route = getRoute(&router, mkString(""), requestLine.target.path);
+    RouteContext context = {
+        .s = &s,
+        .headers = &headers,
+        .originalPath = requestLine.target.path,
+        .relatedPath = requestLine.target.path,
+    };
+
+    Route *route = getRoute(&router, &context);
     if(route == null) {
         printf("invalid route\n");
         return null;
     }
 
-    RouteContext context = {0};
     route->callback(&context, route->argument);
 
     MapIter *iter = map_iter(&headers);
@@ -321,6 +374,8 @@ void *threadRoutine(void *_connection) {
 }
 
 int main(int argc, char **argv) {
+    printf("ALLOC: %p\n", (ALLOC_GLOBAL_DEF).free);
+
     int result;
     int sock = result = socket(AF_INET, SOCK_STREAM, 0);
     printf("SOCKET: %d\n", result);
@@ -336,7 +391,7 @@ int main(int argc, char **argv) {
     result = listen(sock, 128);
     printf("LISTEN: %d\n", result);
 
-    ALLOC_INDEX = 69;
+    FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"));
 
     // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
     router = (Router){
@@ -346,6 +401,7 @@ int main(int argc, char **argv) {
         // .lock = &routerLock,
     };
 
+    addRoute(&router, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(ftrouter));
     addRoute(&router, mkString("host"), mkString("/*"), testCallback, memnull);
 
     while(true) {

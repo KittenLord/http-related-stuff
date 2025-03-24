@@ -11,6 +11,7 @@ typedef struct {
 
 #define memnull ((Mem){ .s = null, .len = 0 })
 #define mkMem(_s, _len) ((Mem){ .s = (_s), .len = (_len) })
+#define mkPointer(_v) mkMem((byte *)&_v, sizeof(void *))
 
 #define memIndex(m, i) mkMem((m).s + i, (m).len - i)
 #define memLimit(m, i) mkMem((m).s, (i) > (m).len ? (m).len : (i))
