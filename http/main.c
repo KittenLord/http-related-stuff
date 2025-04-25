@@ -424,6 +424,7 @@ int main(int argc, char **argv) {
         struct sockaddr_in caddr = {0};
         socklen_t caddrLen = 0;
         int csock = accept(sock, (struct sockaddr *)&caddr, &caddrLen);
+        printf("NEW CONNECTION\n");
 
         Connection _connection = {
             .addr = caddr,
