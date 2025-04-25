@@ -34,7 +34,7 @@ usz fnv64hash(Mem m) {
 
 void hm_fix(Hashmap *hm) {
     if(hm->nodes == null) {
-        hm->nodes = AllocateBytesC(hm->alloc, sizeof(MapNode *) * 16);
+        hm->nodes = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode *) * 16).s;
         hm->len = 16;
         hm->max = 0;
         hm->total = 0;
@@ -55,7 +55,7 @@ void hm_set(Hashmap *hm, Mem key, Mem val) {
     MapNode *nodes = hm->nodes[index];
 
     if(nodes == null) {
-        hm->nodes[index] = AllocateBytesC(hm->alloc, sizeof(MapNode));
+        hm->nodes[index] = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode)).s;
         nodes = hm->nodes[index];
         nodes->key = mem_clone(key, hm->alloc);
         nodes->val = mem_clone(val, hm->alloc);
@@ -80,7 +80,7 @@ void hm_set(Hashmap *hm, Mem key, Mem val) {
     }
 
     if(current->next == null) {
-        current->next = AllocateBytesC(hm->alloc, sizeof(MapNode));
+        current->next = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode)).s;
         current->next->key = mem_clone(key, hm->alloc);
         current->next->val = mem_clone(val, hm->alloc);
 

@@ -103,8 +103,8 @@ void stream_wbufferEnableC(Stream *s, Mem buffer) {
 
 void stream_wbufferEnable(Stream *s, usz size) {
     if(s->wbufferEnabled) return;
-    void *bytes = AllocateBytes(size);
-    stream_wbufferEnableC(s, mkMem(bytes, size));
+    Mem wbuffer = AllocateBytes(size);
+    stream_wbufferEnableC(s, wbuffer);
 }
 
 void stream_rbufferEnableC(Stream *s, Mem buffer) {
@@ -118,8 +118,8 @@ void stream_rbufferEnableC(Stream *s, Mem buffer) {
 
 void stream_rbufferEnable(Stream *s, usz size) {
     if(s->rbufferEnabled) return;
-    void *bytes = AllocateBytes(size);
-    stream_rbufferEnableC(s, mkMem(bytes, size));
+    Mem rbuffer = AllocateBytes(size);
+    stream_rbufferEnableC(s, rbuffer);
 }
 
 void stream_rlimitEnable(Stream *s, isz limit) {
@@ -200,7 +200,7 @@ ResultRead stream_readRaw(Stream *s, Mem mem) {
         return mkResultRead(mem.len, (usz)bytesRead);
     }
     else if(s->type == STREAM_SB) {
-        Mem src = memIndex(s->sb->s, s->sbi);
+        Mem src = memIndex(memLimit(s->sb->s, s->sb->len), s->sbi);
         src = memLimit(src, mem.len);
         mem_copy(mem, src);
         return mkResultRead(mem.len, src.len);

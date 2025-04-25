@@ -12,7 +12,7 @@
 
 typedef struct Alloc Alloc;
 struct Alloc {
-    ptr  (*alloc)(Alloc *a, usz);
+    Mem  (*alloc)(Alloc *a, usz);
     void (*free)(Alloc *a, ptr);
     void (*reset)(Alloc *a);
     void (*kill)(Alloc *a);
@@ -20,8 +20,8 @@ struct Alloc {
     void *data;
 };
 
-ptr  malloc_alloc(Alloc *a, usz size) { a = a; return calloc(size, sizeof(byte)); }
-void malloc_free(Alloc *a, ptr p) { a = a; free(p); }
+Mem  malloc_alloc(Alloc *a, usz size) { Mem m = mkMem(calloc(size, sizeof(byte)), size); if(m.s == null) return memnull; return m; }
+void malloc_free(Alloc *a, ptr p) { free(p); }
 void malloc_reset(Alloc *a) { a = a; }
 void malloc_kill(Alloc *a) { a = a; }
 
@@ -33,36 +33,36 @@ GLOBAL __thread Alloc ALLOC_STACK[256] = { ALLOC_GLOBAL_DEF, {0} };
 GLOBAL __thread usz   ALLOC_INDEX = 0;
 
 // TODO: maybe this'll be better as a pointer?
-#define ALLOC ALLOC_STACK[ALLOC_INDEX]
+#define ALLOC (&ALLOC_STACK[ALLOC_INDEX])
 
 void ALLOC_POP() { 
     if(ALLOC_INDEX == 0) return;
-    ALLOC.kill(&ALLOC);
+    ALLOC->kill(ALLOC);
     ALLOC_INDEX--;
 }
 
 Alloc *ALLOC_PUSH(Alloc alloc) {
     ALLOC_INDEX++;
-    ALLOC = alloc;
-    return &ALLOC;
+    *ALLOC = alloc;
+    return ALLOC;
 }
 
-#define AllocateBytes(bytes) AllocateBytesC(&ALLOC, (bytes))
-ptr AllocateBytesC(Alloc *alloc, usz bytes) {
+#define AllocateBytes(bytes) AllocateBytesC(ALLOC, (bytes))
+Mem AllocateBytesC(Alloc *alloc, usz bytes) {
     return alloc->alloc(alloc, bytes);
 }
 
-#define Free(ptr) FreeC(&ALLOC, (ptr))
+#define Free(ptr) FreeC(ALLOC, (ptr))
 void FreeC(Alloc *alloc, ptr p) {
     alloc->free(alloc, p);
 }
 
-#define Reset() ResetC(&ALLOC)
+#define Reset() ResetC(ALLOC)
 void ResetC(Alloc *alloc) {
     alloc->reset(alloc);
 }
 
-#define Kill() KillC(&ALLOC)
+#define Kill() KillC(ALLOC)
 void KillC(Alloc *alloc) {
     alloc->kill(alloc);
 }
@@ -72,7 +72,7 @@ void KillC(Alloc *alloc) {
     { \
         ty temp = (obj); \
         ptr src = (ptr)&temp; \
-        res = (ty *)AllocateBytesC(alloc, sizeof(ty)); \
+        res = (ty *)(AllocateBytesC(alloc, sizeof(ty)).s); \
         memcpy((ptr)res, src, sizeof(ty)); \
     }
 
@@ -81,59 +81,56 @@ void KillC(Alloc *alloc) {
 #define UseAlloc(a, block) BLOCK({ Alloc ___temp = a; ALLOC_PUSH(___temp); { block; }; ALLOC_POP(); })
 
 typedef struct {
-    usz pageSize;
-
-    byte *page;
-    Alloc *alloc;
+    Mem page;
+    usz initialPageSize;
     usz offset;
 
-    ptr lastAlloc;
-    usz lastAllocSize;
+    Alloc *alloc;
+
+    Mem lastAlloc;
 } Alloc_LinearExpadableData;
 
-ptr LinearExpandable_alloc(Alloc *ap, usz size) {
+Mem LinearExpandable_alloc(Alloc *a, usz size) {
     // TODO: zero out memory
 
-    Alloc a = *ap;
-    Alloc_LinearExpadableData *data = a.data;
-    if(size > data->pageSize - sizeof(ptr *)) return null; // TODO: figure out what to do here
+    Alloc_LinearExpadableData *data = a->data;
+    if(size > data->page.len - sizeof(ptr *)) {
+        // TODO: figure out what to do here
+        return memnull;
+    }
 
-    if(data->offset + size <= data->pageSize) {
-        ptr result = data->page + data->offset;
+    if(data->offset + size <= data->page.len) {
+        Mem result = mkMem(data->page.s + data->offset, size);
         data->offset += size;
         data->lastAlloc = result;
-        data->lastAllocSize = size;
         return result;
     }
     else {
-        byte *newPage = AllocateBytesC(data->alloc, data->pageSize);
-        *((ptr *)newPage) = data->page;
+        usz newLen = data->page.len; // TODO: maybe use initialPageSize?
+        Mem newPage = AllocateBytesC(data->alloc, newLen);
+        *((ptr *)newPage.s) = data->page.s;
         data->page = newPage;
         data->offset = 0 + sizeof(ptr *);
-        data->lastAlloc = null;
-        data->lastAllocSize = 0;
+        data->lastAlloc = memnull;
 
-        return LinearExpandable_alloc(ap, size);
+        return LinearExpandable_alloc(a, size);
     }
 }
 
-void LinearExpandable_free(Alloc *ap, ptr p) {
+void LinearExpandable_free(Alloc *a, ptr p) {
     if(p == null) return;
-    Alloc a = *ap;
 
-    Alloc_LinearExpadableData *data = a.data;
-    if(data->lastAlloc == p) {
-        data->offset -= data->lastAllocSize;
-        data->lastAlloc = null;
-        data->lastAllocSize = 0;
+    Alloc_LinearExpadableData *data = a->data;
+    if(data->lastAlloc.s == p) {
+        data->offset -= data->lastAlloc.len;
+        data->lastAlloc = memnull;
     }
 }
 
-void LinearExpandable_reset(Alloc *ap) {
-    Alloc a = *ap;
-    Alloc_LinearExpadableData *data = a.data;
+void LinearExpandable_reset(Alloc *a) {
+    Alloc_LinearExpadableData *data = a->data;
 
-    ptr current = data->page;
+    ptr current = data->page.s;
     while(true) {
         ptr next = *(ptr *)current;
         if(!next) break;
@@ -143,16 +140,15 @@ void LinearExpandable_reset(Alloc *ap) {
         FreeC(data->alloc, toFree);
     }
 
-    data->page = current;
-    *(ptr *)data->page = 0;
+    data->page = mkMem(current, data->initialPageSize);
+    *(ptr *)(data->page.s) = 0;
     data->offset = 0 + sizeof(ptr *);
-    data->lastAlloc = null;
-    data->lastAllocSize = 0;
+    data->lastAlloc = memnull;
 }
 
 void LinearExpandable_kill(Alloc *a) {
     LinearExpandable_reset(a);
-    FreeC(((Alloc_LinearExpadableData *)a->data)->alloc, (ptr)(((Alloc_LinearExpadableData *)a->data)->page));
+    FreeC(((Alloc_LinearExpadableData *)a->data)->alloc, (ptr)(((Alloc_LinearExpadableData *)a->data)->page.s));
     FreeC(((Alloc_LinearExpadableData *)a->data)->alloc, (ptr)(a->data));
 }
 
@@ -161,20 +157,21 @@ void LinearExpandable_kill(Alloc *a) {
 #define mkAlloc_LinearExpandableC(size) mkAlloc_LinearExpandableAC(ALLOC_GLOBAL, (size))
 Alloc mkAlloc_LinearExpandableAC(Alloc *alloc, usz pageSize) {
     Alloc_LinearExpadableData data = {
-        .pageSize = pageSize,
+        .initialPageSize = pageSize,
         .page = AllocateBytesC(alloc, pageSize),
         .alloc = alloc,
         .offset = 0 + sizeof(ptr *),
-        .lastAlloc = null,
-        .lastAllocSize = 0
+        .lastAlloc = memnull,
     };
 
     // NOTE: I'm not sure why this is necessary, for some reason this wasn't
     // getting zeroed out, even though the global allocator uses calloc
-    *(ptr *)data.page = null;
+    *(ptr *)(data.page.s) = null;
 
-    Alloc_LinearExpadableData *pdata = AllocateBytesC(alloc, sizeof(Alloc_LinearExpadableData));
-    *pdata = data;
+    AllocateVarC(Alloc_LinearExpadableData, pdata, data, alloc);
+
+    // Alloc_LinearExpadableData *pdata = AllocateBytesC(alloc, sizeof(Alloc_LinearExpadableData));
+    // *pdata = data;
 
     return (Alloc){
         .alloc = LinearExpandable_alloc,
@@ -182,9 +179,8 @@ Alloc mkAlloc_LinearExpandableAC(Alloc *alloc, usz pageSize) {
         .reset = LinearExpandable_reset,
         .kill = LinearExpandable_kill,
 
-        .data = pdata
+        .data = pdata,
     };
 }
-
 
 #endif // __LIB_ALLOC

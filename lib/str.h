@@ -37,6 +37,8 @@ typedef struct {
 
 typedef struct {
     String s;
+
+    usz len;
     usz cap;
 
     bool dontExpand;
@@ -45,40 +47,34 @@ typedef struct {
 } StringBuilder;
 
 #define mkStringBuilder() mkStringBuilderCap(32)
-#define mkStringBuilderCap(c) ((StringBuilder){ .alloc = &ALLOC, .cap = (c) })
+#define mkStringBuilderCap(c) ((StringBuilder){ .alloc = ALLOC, .cap = (c) })
 
-#define sb_build(sb) ((String){ .s = (sb).s.s, .len = (sb).s.len })
+#define sb_build(sb) ((String){ .s = (sb).s.s, .len = (sb).len })
 
 bool sb_appendMem(StringBuilder *sb, Mem m) {
     if(sb->s.s == null) {
-        sb->s.s = AllocateBytesC(sb->alloc, sb->cap);
-        sb->s.len = 0;
+        sb->s = AllocateBytesC(sb->alloc, sb->cap);
     }
 
-    if(m.len + sb->s.len <= sb->cap) {
-        Mem dst = mkMem(sb->s.s, sb->cap);
-        dst = memIndex(dst, sb->s.len);
+    if(m.len + sb->len <= sb->cap) {
+        Mem dst = memIndex(sb->s, sb->len);
         mem_copy(dst, m);
-        sb->s.len += m.len;
+        sb->len += m.len;
         return true;
     }
 
     if(sb->dontExpand) return false;
 
-    usz oldLen = sb->s.len;
-
     usz newCap = sb->cap * 2;
-    if(newCap < sb->s.len + m.len) newCap = sb->s.len + m.len;
+    if(newCap < sb->len + m.len) newCap = sb->len + m.len;
 
-    byte *newBytes = AllocateBytesC(sb->alloc, newCap);
-    if(!newBytes) return false;
+    Mem newMem = AllocateBytesC(sb->alloc, newCap);
+    if(isNull(newMem)) return false;
 
-    Mem newS = mkMem(newBytes, newCap);
-    mem_copy(newS, sb->s);
+    mem_copy(newMem, sb->s);
     FreeC(sb->alloc, sb->s.s);
     sb->cap = newCap;
-    sb->s = newS;
-    sb->s.len = oldLen;
+    sb->s = newMem;
 
     return sb_appendMem(sb, m);
 }
@@ -91,10 +87,9 @@ bool sb_appendByte(StringBuilder *sb, byte b) {
 #define sb_appendChar(sb, b) sb_appendByte(sb, b)
 
 void sb_reset(StringBuilder *sb) {
-    for(usz i = 0; i < sb->cap; i++) {
-        sb->s.s[i] = 0x00;
-    }
-    sb->s.len = 0;
+    if(sb->s.s == null) return;
+    mem_set(sb->s, 0x00);
+    sb->len = 0;
 }
 
 bool sb_appendRune(StringBuilder *sb, rune r) {
@@ -103,6 +98,7 @@ bool sb_appendRune(StringBuilder *sb, rune r) {
     return sb_appendMem(sb, m);
 }
 
+// TODO: rename to string_contains_any?
 bool string_contains(byte c, String s) {
     for(usz i = 0; i < s.len; i++) {
         if(s.s[i] == c) return true;

@@ -139,7 +139,7 @@ int main() {
                     sb_appendString(&sbComp, authority.host.regName);
                 }
                 else if(authority.host.type == URI_HOST_IPV4) {
-                    String ipv4 = Uri_ipv4ToString(authority.host.ipv4, &ALLOC);
+                    String ipv4 = Uri_ipv4ToString(authority.host.ipv4, ALLOC);
                     sb_appendString(&sbComp, ipv4);
                 }
                 else if(authority.host.type == URI_HOST_IPLITERAL) {

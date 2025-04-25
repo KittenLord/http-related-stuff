@@ -290,7 +290,7 @@ JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
         JsonValue value = JSON_parseValue(s, alloc);
 
         JsonKeyValue keyValue = { .key = key.string, .value = value };
-        JsonKeyValue *pkeyValue = AllocateBytesC(alloc, sizeof(JsonKeyValue));
+        JsonKeyValue *pkeyValue = (ptr)AllocateBytesC(alloc, sizeof(JsonKeyValue)).s;
         *pkeyValue = keyValue;
 
         object.length++;
@@ -330,7 +330,7 @@ JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
         stream_popRune(s);
     }
 
-    JsonObject *pobject = AllocateBytesC(alloc, sizeof(JsonObject));
+    JsonObject *pobject = (ptr)AllocateBytesC(alloc, sizeof(JsonObject)).s;
     *pobject = object;
     JsonValue result = { .type = JSON_OBJECT, .object = pobject };
     return result;
@@ -360,7 +360,7 @@ JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
 
         array.length++;
         JsonArrayElement item = { .value = value };
-        JsonArrayElement *pitem = AllocateBytesC(alloc, sizeof(JsonArrayElement));
+        JsonArrayElement *pitem = (ptr)AllocateBytesC(alloc, sizeof(JsonArrayElement)).s;
         *pitem = item;
 
         if(last == null) {
@@ -398,7 +398,7 @@ JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
         stream_popRune(s);
     }
 
-    JsonArray *parray = AllocateBytesC(alloc, sizeof(JsonArray));
+    JsonArray *parray = (ptr)AllocateBytesC(alloc, sizeof(JsonArray)).s;
     *parray = array;
 
     JsonValue result = { .type = JSON_ARRAY, .array = parray };

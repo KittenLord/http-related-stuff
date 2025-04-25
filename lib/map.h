@@ -46,7 +46,7 @@ usz map_depth(MapNode *node) {
 
 void map_set(Map *map, Mem key, Mem val) {
     if(!map->nodes) {
-        map->nodes = AllocateBytesC(map->alloc, sizeof(MapNode));
+        map->nodes = (void *)AllocateBytesC(map->alloc, sizeof(MapNode)).s;
         map->nodes->key = mem_clone(key, map->alloc);
         map->nodes->val = mem_clone(val, map->alloc);
         return;

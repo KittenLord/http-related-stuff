@@ -127,7 +127,7 @@ bool Http_parseOne(Stream *s, byte c) {
 }
 
 HttpMethod Http_parseMethod(Stream *s) {
-    MaybeString mm = Http_parseToken(s, &ALLOC, 20);
+    MaybeString mm = Http_parseToken(s, ALLOC, 20);
     if(isNone(mm)) { return HTTP_INVALID_METHOD; }
     String m = mm.value;
 
@@ -286,7 +286,7 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     Alloc *alloc = map->alloc;
     
     // NOTE: I don't know any header longer than 64 chars lol
-    MaybeString mfieldName = Http_parseToken(s, &ALLOC, 64);
+    MaybeString mfieldName = Http_parseToken(s, ALLOC, 64);
     if(isNone(mfieldName)) { return HTTPERR_INVALID_FIELD_NAME; }
     String fieldName = mfieldName.value;
     for(usz i = 0; i < fieldName.len; i++) {

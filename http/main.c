@@ -138,7 +138,7 @@ typedef struct {
 } FileTreeRouter;
 
 FileTreeRouter mkFileTreeRouter(String spath) {
-    Alloc *alloc = &ALLOC;
+    Alloc *alloc = ALLOC;
     Stream s = mkStreamStr(spath);
     UriPath path = Uri_parsePathRootless(&s, alloc);
     // if(isJust(stream_peekChar(&s))) {
@@ -154,7 +154,7 @@ FileTreeRouter mkFileTreeRouter(String spath) {
 }
 
 Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
-    UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, &ALLOC);
+    UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, ALLOC);
     if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
 
     StringBuilder sb = mkStringBuilder();
@@ -391,8 +391,6 @@ void *threadRoutine(void *_connection) {
 }
 
 int main(int argc, char **argv) {
-    printf("ALLOC: %p\n", (ALLOC_GLOBAL_DEF).free);
-
     int result;
     int sock = result = socket(AF_INET, SOCK_STREAM, 0);
     printf("SOCKET: %d\n", result);

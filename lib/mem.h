@@ -4,13 +4,6 @@
 #include "types.h"
 #include "alloc.h"
 
-typedef struct {
-    byte *s;
-    usz len;
-} Mem;
-
-#define memnull ((Mem){ .s = null, .len = 0 })
-#define mkMem(_s, _len) ((Mem){ .s = (_s), .len = (_len) })
 #define mkPointer(_v) mkMem((byte *)&_v, sizeof(void *))
 
 #define memIndex(m, i) mkMem((m).s + i, (m).len - i)
@@ -49,8 +42,7 @@ void mem_move(Mem dst, Mem src) {
 }
 
 Mem mem_clone(Mem src, Alloc *alloc) {
-    byte *s = AllocateBytesC(alloc, src.len);
-    Mem dst = { .s = s, .len = src.len };
+    Mem dst = AllocateBytesC(alloc, src.len);
     mem_copy(dst, src);
     return dst;
 }
