@@ -61,4 +61,11 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
     } \
 } \
 
+bool dynar_append_clone(Dynar(Mem) *dynar, Mem mem) {
+    mem = mem_clone(dynar->alloc, mem);
+    bool result = false;
+    dynar_append(dynar, Mem, mem, result);
+    return result;
+}
+
 #endif // __LIB_DYNAR
