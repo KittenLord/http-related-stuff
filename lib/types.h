@@ -71,7 +71,7 @@ typedef struct {
 } Mem;
 
 #define memnull ((Mem){ .s = null, .len = 0 })
-#define mkMem(_s, _len) ((Mem){ .s = (_s), .len = (_len) })
+#define mkMem(_s, _len) ((Mem){ .s = (byte *)(_s), .len = (_len) })
 // TODO: should this return true if len == 0?
 #define isNull(mem) ((mem).s == null)
 

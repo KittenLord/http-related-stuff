@@ -6,9 +6,11 @@ typedef struct {
     usz len;
     usz element;
     Alloc *alloc;
-} _dynar;
+} _dynar_type;
 // Type safety in C be like
-#define Dynar(ty) _dynar
+#define Dynar(ty) _dynar_type
+
+#define dynar_index(ty, dynar, index) (((ty *)dynar.mem.s)[(index)])
 
 #define DYNAR_DEFAULT_CAPACITY 32
 
@@ -24,8 +26,7 @@ Dynar(void) makeDynarFixed(usz element, Mem mem, usz len) {
 
 Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
     usz len = element * capacity;
-    byte *bytes = AllocateBytesC(alloc, len);
-    Mem mem = mkMem(bytes, len);
+    Mem mem = AllocateBytesC(alloc, len);
     return (Dynar(void)){
         .mem = mem,
         .len = 0,
@@ -35,7 +36,7 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
 }
 
 #define mkDynarML(ty, mem, len) makeDynarFixed(sizeof(ty), mem, len)
-#define mkDynarM(ty, mem) mkDynarM(ty, mem, 0)
+#define mkDynarM(ty, mem) mkDynarML(ty, mem, 0)
 #define mkDynarCA(ty, cap, alloc) makeDynarAllocate(sizeof(ty), (cap), (alloc))
 #define mkDynarA(ty, alloc) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, alloc)
 #define mkDynar(ty) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, ALLOC)
@@ -43,6 +44,7 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
 #define dynar_append(dynar, ty, _value, result) { \
     ty value = _value; \
     bool _ = true; \
+    if(_) {} \
     if(dynar->len * dynar->element < dynar->mem.len) { \
         *((ty *)dynar->mem.s + dynar->len) = value; \
         dynar->len++; \
@@ -51,18 +53,16 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
         result = false; \
     } \
     else { \
-        usz newCap = dynar->mem.s * 2; \
+        usz newCap = dynar->mem.len * 2; \
         if(newCap == 0) newCap = DYNAR_DEFAULT_CAPACITY * dynar->element; \
-        byte *bytes = AllocateBytesC(alloc, newCap); \
-        dynar->mem.s = bytes; \
-        dynar->mem.len = newCap; \
+        dynar->mem = AllocateBytesC(dynar->alloc, newCap); \
         *((ty *)dynar->mem.s + dynar->len) = value; \
         dynar->len++; \
     } \
 } \
 
 bool dynar_append_clone(Dynar(Mem) *dynar, Mem mem) {
-    mem = mem_clone(dynar->alloc, mem);
+    mem = mem_clone(mem, dynar->alloc);
     bool result = false;
     dynar_append(dynar, Mem, mem, result);
     return result;
