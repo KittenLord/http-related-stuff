@@ -60,6 +60,7 @@ typedef u8 bool;
 #define true 1
 
 typedef u8 byte;
+typedef u8 bit;
 
 typedef u32 rune;
 typedef void * ptr;
