@@ -10,7 +10,18 @@ typedef struct {
 // Type safety in C be like
 #define Dynar(ty) _dynar_type
 
-#define dynar_index(ty, dynar, index) (((ty *)((dynar).mem.s))[(index)])
+#define dynar_index(ty, dynar, index) (((ty *)((dynar)->mem.s))[(index)])
+
+#define dynar_set(ty, dynar, index, value) do { (((ty *)((dynar)->mem.s))[(index)] = (value)) } while(false)
+
+#define dynar_remove(ty, dynar, index) do { \
+    if((dynar)->len == 1) { (dynar)->len = 0; break; } \
+    byte *dst = (void *)(((ty *)((dynar)->mem.s)) + (index)); \
+    byte *src = (void *)(((ty *)((dynar)->mem.s)) + (index) + 1); \
+    usz len = ((dynar)->len - (index) - 1) * (dynar)->element; \
+    mem_move(mkMem(dst, len), mkMem(src, len)); \
+    (dynar)->len -= 1; \
+} while(false)
 
 #define DYNAR_DEFAULT_CAPACITY 32
 
@@ -56,7 +67,9 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
     else { \
         usz newCap = (dynar)->mem.len * 2; \
         if(newCap == 0) newCap = DYNAR_DEFAULT_CAPACITY * (dynar)->element; \
-        (dynar)->mem = AllocateBytesC((dynar)->alloc, newCap); \
+        Mem newMem = AllocateBytesC((dynar)->alloc, newCap); \
+        mem_copy(newMem, (dynar)->mem); \
+        (dynar)->mem = newMem; \
         *((ty *)(dynar)->mem.s + (dynar)->len) = ___value; \
         (dynar)->len++; \
     } \

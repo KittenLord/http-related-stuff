@@ -76,7 +76,7 @@ void KillC(Alloc *alloc) {
         memcpy((ptr)res, src, sizeof(ty)); \
     }
 
-#define AllocateVar(ty, res, obj) AllocateVarC(ty, res, (obj), &ALLOC)
+#define AllocateVar(ty, res, obj) AllocateVarC(ty, res, (obj), ALLOC)
 
 #define UseAlloc(a, block) BLOCK({ Alloc ___temp = a; ALLOC_PUSH(___temp); { block; }; ALLOC_POP(); })
 
