@@ -54,6 +54,10 @@ void bitstream_discard(BitStream *bs) {
 #define DEFLATE_BLOCK_FIXED_HUFFMAN 0b01
 #define DEFLATE_BLOCK_DYNAMIC_HUFFMAN 0b10
 
+#define DEFLATE_HCL_COPY_PREVIOUS_2 16
+#define DEFLATE_HCL_REPEAT_ZERO_3 17
+#define DEFLATE_HCL_REPEAT_ZERO_7 18
+
 typedef struct {
     u32 code;
     u8 codeLen;
@@ -102,6 +106,14 @@ u8 DeflateDistExtraBits[30] = {
     11, 11,
     12, 12,
     13, 13
+};
+
+u8 DeflateCodeLenValues[19] = {
+    16, 17, 18, 0,
+    8, 7, 9, 6,
+    10, 5, 11, 4,
+    12, 3, 13, 2,
+    14, 1, 15
 };
 
 u16 DeflateDistValues[30] = {
@@ -214,9 +226,7 @@ bool Deflate_decompress_block_huffman(
             codeLen++;
             offset--;
 
-            while(index < litlen->len &&
-                    (code > litlen->list[index].code
-                     )) {
+            while(index < litlen->len && (code > litlen->list[index].code || codeLen > litlen->list[index].codeLen)) {
                 index++;
             }
             if(index >= litlen->len) return false;
@@ -248,6 +258,8 @@ bool Deflate_decompress_block_huffman(
             usz distIndex = 0;
 
             while(true) {
+                if(distCodeLen >= 30) return false;
+
                 MaybeBit b = bitstream_pop(in);
                 if(isNone(b)) return false;
 
@@ -255,9 +267,7 @@ bool Deflate_decompress_block_huffman(
                 distCodeLen++;
                 distOffset--;
 
-                while(distIndex < dist->len &&
-                        (distCode > dist->list[distIndex].code
-                         )) {
+                while(distIndex < dist->len && (distCode > dist->list[distIndex].code || distCodeLen > dist->list[distIndex].codeLen)) {
                     distIndex++;
                 }
                 if(distIndex >= dist->len) return false;
@@ -358,29 +368,162 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
             for(int i = 0; i < 5; i++) {
                 MaybeBit b = bitstream_pop(&in);
                 if(isNone(b)) return memnull;
-                hlit = (hlit << 1) | b.value;
+                // hlit = (hlit << 1) | b.value;
+                hlit = hlit | (b.value << i);
             }
             hlit += 257; 
+            printf("HLIT: %d\n", hlit);
 
             u8 hdist = 0;
             for(int i = 0; i < 5; i++) {
                 MaybeBit b = bitstream_pop(&in);
                 if(isNone(b)) return memnull;
-                hdist = (hdist << 1) | b.value;
+                // hdist = (hdist << 1) | b.value;
+                hdist = hdist | (b.value << i);
             }
             hdist += 1;
+            printf("HDIST: %d\n", hdist);
 
             u8 hclen = 0;
             for(int i = 0; i < 4; i++) {
                 MaybeBit b = bitstream_pop(&in);
                 if(isNone(b)) return memnull;
-                hclen = (hclen << 1) | b.value;
+                // hclen = (hclen << 1) | b.value;
+                hclen = hclen | (b.value << i);
             }
             hclen += 4;
+            printf("HCLEN: %d\n", hclen);
 
-            // TODO: parse the lengths
+            Dynar(u8) hclenLengths = mkDynarCA(u8, 19, ALLOC);
+            hclenLengths.len = 19;
+            for(int i = 0; i < hclen; i++) {
+                MaybeBit a = bitstream_pop(&in);
+                MaybeBit b = bitstream_pop(&in);
+                MaybeBit c = bitstream_pop(&in);
+                if(isNone(a) || isNone(b) || isNone(c)) return memnull;
 
-            // TODO: call Deflate_decompress_block_huffman
+                // u8 value = (a.value << 2) | (b.value << 1) | c.value;
+                u8 value = a.value | (b.value << 1) | (c.value << 2);
+
+                *((u8 *)(hclenLengths.mem.s) + DeflateCodeLenValues[i]) = value;
+
+                // bool result;
+                // dynar_append(&hclenLengths, u8, value, result);
+                // if(!result) return memnull;
+            }
+
+            for(int i = 0; i < hclenLengths.len; i++) {
+                printf("HCLEN: %d\n", dynar_index(u8, hclenLengths, i));
+            }
+
+            DeflateDeCompTable hclenTable = Deflate_generateDeCompTable(hclenLengths, ALLOC);
+            FreeC(ALLOC, hclenLengths.mem.s);
+
+            Dynar(u8) hlitAndHdistLengths = mkDynarCA(u8, hlit + hdist, ALLOC);
+            u8 last = 0;
+            while(hlitAndHdistLengths.len < hlit + hdist) {
+                u32 code = 0;
+                u32 offset = 31;
+                u32 codeLen = 0;
+                usz index = 0;
+
+                while(true) {
+                    if(codeLen >= 8) return memnull;
+
+                    MaybeBit b = bitstream_pop(&in);
+                    if(isNone(b)) return memnull;
+                    code = code | (b.value << offset);
+
+                    offset--;
+                    codeLen++;
+                    while(index < hclenTable.len && (code > hclenTable.list[index].code || codeLen > hclenTable.list[index].codeLen)) {
+                        index++;
+                    }
+                    if(index >= hclenTable.len) return memnull;
+
+                    if(code == hclenTable.list[index].code && codeLen == hclenTable.list[index].codeLen) {
+                        break;
+                    }
+                }
+
+                DeflateDeCompElement entry = hclenTable.list[index];
+                if(entry.value >= 19) return memnull;
+                // byte value = DeflateCodeLenValues[entry.value];
+                byte value = entry.value;
+
+                if(value >= 0 && value <= 15) {
+                    last = value;
+
+                    bool result;
+                    dynar_append(&hlitAndHdistLengths, u8, value, result);
+                    if(!result) return memnull;
+                }
+                else if(value == DEFLATE_HCL_COPY_PREVIOUS_2) {
+                    MaybeBit a = bitstream_pop(&in);
+                    MaybeBit b = bitstream_pop(&in);
+                    if(isNone(a) || isNone(b)) return memnull;
+                    // usz times = (a.value << 1) | b.value;
+                    usz times = a.value | (b.value << 1);
+                    times += 3;
+                    for(int i = 0; i < times; i++) {
+                        bool result;
+                        dynar_append(&hlitAndHdistLengths, u8, last, result);
+                        if(!result) return memnull;
+                    }
+                }
+                else if(value == DEFLATE_HCL_REPEAT_ZERO_3) {
+                    last = 0;
+                    usz times = 0;
+                    for(int i = 0; i < 3; i++) {
+                        MaybeBit b = bitstream_pop(&in);
+                        if(isNone(b)) return memnull;
+                        // times = (times << 1) | b.value;
+                        times = times | (b.value << i);
+                    }
+                    times += 3;
+                    for(int i = 0; i < times; i++) {
+                        bool result;
+                        dynar_append(&hlitAndHdistLengths, u8, 0, result);
+                        if(!result) return memnull;
+                    }
+                }
+                else if(value == DEFLATE_HCL_REPEAT_ZERO_7) {
+                    last = 0;
+                    usz times = 0;
+                    for(int i = 0; i < 7; i++) {
+                        MaybeBit b = bitstream_pop(&in);
+                        if(isNone(b)) return memnull;
+                        // times = (times << 1) | b.value;
+                        times = times | (b.value << i);
+                    }
+                    times += 11;
+                    for(int i = 0; i < times; i++) {
+                        bool result;
+                        dynar_append(&hlitAndHdistLengths, u8, 0, result);
+                        if(!result) return memnull;
+                    }
+                }
+                else { return memnull; }
+            }
+
+            Dynar(u8) hlitLengths = hlitAndHdistLengths;
+            hlitLengths.len = hlit;
+
+            Dynar(u8) hdistLengths = hlitAndHdistLengths;
+            hdistLengths.mem.s += hlit;
+            hdistLengths.mem.len = hdist;
+            hdistLengths.len = hdist;
+
+            DeflateDeCompTable litlen = Deflate_generateDeCompTable(hlitLengths, ALLOC);
+            DeflateDeCompTable dist = Deflate_generateDeCompTable(hdistLengths, ALLOC);
+
+            bool result = Deflate_decompress_block_huffman(&in, &out, &sb, &litlen, &dist);
+            if(!result) return memnull;
+
+            Free(litlen.list);
+            Free(dist.list);
+            Free(hlitAndHdistLengths.mem.s);
+            Free(hclenTable.list);
         }
         else {
             return memnull;

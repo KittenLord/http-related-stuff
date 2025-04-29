@@ -172,7 +172,7 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     if(file == null) return memnull;
 
     int fd = fileno(file);
-    sb.s.len = 0;
+    sb.len = 0;
 
     byte rbuffer[1024];
     byte wbuffer[1024];

@@ -10,7 +10,7 @@ typedef struct {
 // Type safety in C be like
 #define Dynar(ty) _dynar_type
 
-#define dynar_index(ty, dynar, index) (((ty *)dynar.mem.s)[(index)])
+#define dynar_index(ty, dynar, index) (((ty *)((dynar).mem.s))[(index)])
 
 #define DYNAR_DEFAULT_CAPACITY 32
 
@@ -42,22 +42,23 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
 #define mkDynar(ty) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, ALLOC)
 
 #define dynar_append(dynar, ty, _value, result) { \
-    ty value = _value; \
+    ty ___value = (_value); \
     bool _ = true; \
+    result = true; \
     if(_) {} \
-    if(dynar->len * dynar->element < dynar->mem.len) { \
-        *((ty *)dynar->mem.s + dynar->len) = value; \
-        dynar->len++; \
+    if((dynar)->len * (dynar)->element < (dynar)->mem.len) { \
+        *((ty *)((dynar)->mem.s) + (dynar)->len) = ___value; \
+        (dynar)->len++; \
     } \
-    else if(dynar->alloc == null){ \
+    else if((dynar)->alloc == null){ \
         result = false; \
     } \
     else { \
-        usz newCap = dynar->mem.len * 2; \
-        if(newCap == 0) newCap = DYNAR_DEFAULT_CAPACITY * dynar->element; \
-        dynar->mem = AllocateBytesC(dynar->alloc, newCap); \
-        *((ty *)dynar->mem.s + dynar->len) = value; \
-        dynar->len++; \
+        usz newCap = (dynar)->mem.len * 2; \
+        if(newCap == 0) newCap = DYNAR_DEFAULT_CAPACITY * (dynar)->element; \
+        (dynar)->mem = AllocateBytesC((dynar)->alloc, newCap); \
+        *((ty *)(dynar)->mem.s + (dynar)->len) = ___value; \
+        (dynar)->len++; \
     } \
 } \
 
