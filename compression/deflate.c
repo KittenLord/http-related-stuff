@@ -7,6 +7,12 @@
 #include "stream.h"
 #include "dynar.h"
 
+// TODO: Add bounds checking and error handling in some places where I haven't yet
+
+// NOTE: this will probably die a horrible death on any bad input, particularly if
+// a file is constructed in a way that the Huffman codes will take more than 32
+// (more than 15 will be bad already) bits
+
 // TODO: move to bitstream.h
 
 typedef struct {
@@ -346,7 +352,6 @@ bool Deflate_decompress_block_huffman(
         u8 codeLen = 0;
         usz index = 0;
 
-        // printf("BEFORE %d\n", in->times);
         while(true) {
             MaybeBit b = bitstream_pop(in);
             if(isNone(b)) return false;
@@ -365,11 +370,8 @@ bool Deflate_decompress_block_huffman(
                 break;
             }
         }
-        // printf("AFTER %d\n", in->times);
 
         DeflateDeCompElement litlenEntry = litlen->list[index];
-        // printf("VALUE %x\n", litlenEntry.code);
-        // printf("VALUE %d %d\n", litlenEntry.isDist, litlenEntry.value);
 
         if(litlenEntry.isDist && litlenEntry.value == 0) {
             // 256 = end of the block code
@@ -549,9 +551,6 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 // if(!result) return memnull;
             }
 
-            // for(int i = 0; i < hclenLengths.len; i++) {
-            //     printf("DE HCLEN: %d\n", dynar_index(u8, &hclenLengths, i));
-            // }
 
 
             DeflateDeCompTable hclenTable = Deflate_generateDeCompTable(hclenLengths, ALLOC);
@@ -807,20 +806,6 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         if(!result) return memnull;
     }
 
-    // for(int i = 0; i < values.len; i++) {
-    //     DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
-    //     if(false){}
-    //     else if(v.type == DEFLATE_ITEM_LIT) {
-    //         printf("LIT %x\n", v.value);
-    //     }
-    //     else if(v.type == DEFLATE_ITEM_LEN) {
-    //         printf("LEN %d\n", v.value);
-    //     }
-    //     else if(v.type == DEFLATE_ITEM_DIST) {
-    //         printf("DIST %d\n", v.value);
-    //     }
-    // }
-
     u32 litlenFreq[286] = {0};
     u32 distFreq[30] = {0};
 
@@ -875,20 +860,6 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
              mkMem((byte *)distCodeLen, distCodeLenLen));
     u16 totalCodeLenLen = litlenCodeLenLen + distCodeLenLen;
 
-    // printf("LITLEN %d\n", litlenCodeLenLen);
-    // printf("DIST %d\n", distCodeLenLen);
-    // printf("TOTAL %d\n", totalCodeLenLen);
-
-    // for(int i = 0; i < 286; i++) {
-    //     if(litlenCodeLen[i] == 0) continue;
-    //     printf("CODE LEN: %d %d\n", i, litlenCodeLen[i]);
-    // }
-    //
-    // for(int i = 0; i < 30; i++) {
-    //     if(distCodeLen[i] == 0) continue;
-    //     printf("DIST CODE LEN: %d %d\n", i, distCodeLen[i]);
-    // }
-
     Dynar(u8) litlenDynar = (Dynar(u8)){ .mem = mkMem((void *)litlenCodeLen, 286), .len = 286 };
     Dynar(u8) distDynar = (Dynar(u8)){ .mem = mkMem((void *)distCodeLen, 30), .len = 30 };
 
@@ -931,10 +902,6 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         }
     }
 
-    // for(int i = 0; i < 30; i++) {
-    //     printf("TABLELEN %d %d\n", i, table.len[i].codeLen);
-    // }
-
     Dynar(DeflateHclenValue) hclenLenCodes = mkDynar(DeflateHclenValue);
     for(int i = 0; i < totalCodeLenLen; i++) {
         u8 len = totalCodeLen[i];
@@ -967,16 +934,6 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
             }
         }
     }
-
-    // for(int i = 0; i < hclenLenCodes.len; i++) {
-    //     DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
-    //     if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
-    //         printf("HCLEN CODE %d\n", val.value);
-    //     }
-    //     else {
-    //         printf("HCLEN TYPE %d\n", val.type);
-    //     }
-    // }
 
     u32 hclenFreq[19] = {0};
     for(int i = 0; i < hclenLenCodes.len; i++) {
@@ -1069,13 +1026,8 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         }
     }
 
-    // printf("SEMICOLON COMP %d %x\n", table.lit['\n'].codeLen, table.lit['\n'].code);
-    // printf("SEMICOLON 2 %d %x\n", table.len[2].codeLen, table.len[2].code);
-    // printf("SEMICOLON NULL %d %x\n", table.len[0].codeLen, table.len[0].code);
-
     for(int i = 0; i < values.len; i++) {
         DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
-        // printf("VALUE %d %d\n", v.type, v.value);
         bool result;
         if(false) {}
         else if(v.type == DEFLATE_ITEM_LIT) {
