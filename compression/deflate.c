@@ -14,6 +14,8 @@ typedef struct {
 
     byte currentByte;
     byte bitOffset;
+
+    int times;
 } BitStream;
 
 typedef struct {
@@ -42,6 +44,7 @@ MaybeBit bitstream_pop(BitStream *bs) {
     MaybeBit value = bitstream_peek(bs);
     if(isNone(value)) return value;
     bs->bitOffset++;
+    bs->times++;
     return value;
 }
 
@@ -70,6 +73,19 @@ bool bitstream_write(BitStream *bs, bit b) {
 
     bs->currentByte = bs->currentByte | ((b & 1) << bs->bitOffset);
     bs->bitOffset++;
+    bs->times++;
+    return true;
+}
+
+bool bitstream_writeN(BitStream *bs, u64 val, u8 len) {
+    if(len == 0) return true;
+    if(len > 64) return false;
+
+    for(int i = 0; i < len; i++) {
+        bool result = bitstream_write(bs, (val >> i) & 1);
+        if(!result) return false;
+    }
+
     return true;
 }
 
@@ -83,6 +99,19 @@ bool bitstream_write(BitStream *bs, bit b) {
 
 #define DEFLATE_MAX_LEN 258
 #define DEFLATE_MAX_DIST 32768
+
+#define DEFLATE_HCLEN_ITEM_CODE 1
+#define DEFLATE_HCLEN_ITEM_COPY_2 16
+#define DEFLATE_HCLEN_ITEM_ZERO_3 17
+#define DEFLATE_HCLEN_ITEM_ZERO_7 18
+typedef struct {
+    u8 value;
+    byte type;
+} DeflateHclenValue;
+#define mkDeflateHItemCode(v) ((DeflateHclenValue){ .value = (v), .type = DEFLATE_HCLEN_ITEM_CODE })
+#define mkDeflateHItemCopy(v) ((DeflateHclenValue){ .value = (v), .type = DEFLATE_HCLEN_ITEM_COPY_2 })
+#define mkDeflateHItemZero3(v) ((DeflateHclenValue){ .value = (v), .type = DEFLATE_HCLEN_ITEM_ZERO_3 })
+#define mkDeflateHItemZero7(v) ((DeflateHclenValue){ .value = (v), .type = DEFLATE_HCLEN_ITEM_ZERO_7 })
 
 #define DEFLATE_ITEM_LIT 1
 #define DEFLATE_ITEM_LEN 2
@@ -128,6 +157,16 @@ typedef struct {
     DeflateCompElement *dist;
 } DeflateCompTable;
 
+bool Deflate_writeCompElement(BitStream *bs, DeflateCompElement e) {
+    int offset = 31;
+    for(int i = 0; i < e.codeLen; i++) {
+        bool result = bitstream_write(bs, (e.code >> offset) & 1);
+        offset -= 1;
+        if(!result) return result;
+    }
+    return true;
+}
+
 typedef struct {
     u32 code;
     u8 codeLen;
@@ -164,7 +203,7 @@ u16 DeflateLinLenValues[30] = {
 u16 Deflate_lenToIndex(usz len) {
     if(len == 258) return 29;
     for(int i = 0; i < 29; i++) {
-        if(DeflateLinLenValues[i + 1] < len) continue;
+        if(DeflateLinLenValues[i + 1] <= len) continue;
         return i;
     }
     return -1;
@@ -204,7 +243,7 @@ u16 DeflateDistValues[30] = {
 u16 Deflate_distToIndex(usz dist) {
     if(dist >= 24577) return 29;
     for(int i = 0; i < 29; i++) {
-        if(DeflateDistValues[i + 1] < dist) continue;
+        if(DeflateDistValues[i + 1] <= dist) continue;
         return i;
     }
     return -1;
@@ -307,6 +346,7 @@ bool Deflate_decompress_block_huffman(
         u8 codeLen = 0;
         usz index = 0;
 
+        // printf("BEFORE %d\n", in->times);
         while(true) {
             MaybeBit b = bitstream_pop(in);
             if(isNone(b)) return false;
@@ -325,8 +365,12 @@ bool Deflate_decompress_block_huffman(
                 break;
             }
         }
+        // printf("AFTER %d\n", in->times);
 
         DeflateDeCompElement litlenEntry = litlen->list[index];
+        // printf("VALUE %x\n", litlenEntry.code);
+        // printf("VALUE %d %d\n", litlenEntry.isDist, litlenEntry.value);
+
         if(litlenEntry.isDist && litlenEntry.value == 0) {
             // 256 = end of the block code
             return true;
@@ -334,10 +378,11 @@ bool Deflate_decompress_block_huffman(
         else if(litlenEntry.isDist) {
             u8 extraBits = DeflateLitLenExtraBits[litlenEntry.value];
             u16 extraLen = 0;
-            for(int i = extraBits; i > 0; i--) {
+            for(int i = 0; i < extraBits; i++) {
                 MaybeBit b = bitstream_pop(in);
                 if(isNone(b)) return false;
-                extraLen = (extraLen << 1) | b.value;
+                // extraLen = (extraLen << 1) | b.value;
+                extraLen = extraLen | (b.value << i);
             }
             u16 len = DeflateLinLenValues[litlenEntry.value] + extraLen;
 
@@ -371,10 +416,11 @@ bool Deflate_decompress_block_huffman(
 
             u8 extraDistBits = DeflateDistExtraBits[distEntry.value];
             u16 extraDist = 0;
-            for(int i = extraDistBits; i > 0; i--) {
+            for(int i = 0; i < extraDistBits; i++) {
                 MaybeBit b = bitstream_pop(in);
                 if(isNone(b)) return false;
-                extraDist = (extraDist << 1) | b.value;
+                // extraDist = (extraDist << 1) | b.value;
+                extraDist = extraDist | (b.value << i);
             }
             u16 fdist = DeflateDistValues[distEntry.value] + extraDist;
             if(fdist > sbout->len) return false;
@@ -421,6 +467,7 @@ bool Deflate_decompress_block_noncomp(Stream *in, Stream *out, Alloc *alloc) {
 Mem Deflate_decompress(Mem raw, Alloc *alloc) {
     Stream inByte = mkStreamStr(raw);
     BitStream in = mkBitStream(&inByte);
+    in.times = 0;
 
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
@@ -463,7 +510,6 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 hlit = hlit | (b.value << i);
             }
             hlit += 257; 
-            // printf("HLIT: %d\n", hlit);
 
             u8 hdist = 0;
             for(int i = 0; i < 5; i++) {
@@ -473,7 +519,6 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 hdist = hdist | (b.value << i);
             }
             hdist += 1;
-            // printf("HDIST: %d\n", hdist);
 
             u8 hclen = 0;
             for(int i = 0; i < 4; i++) {
@@ -483,7 +528,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 hclen = hclen | (b.value << i);
             }
             hclen += 4;
-            // printf("HCLEN: %d\n", hclen);
+
 
             Dynar(u8) hclenLengths = mkDynarCA(u8, 19, ALLOC);
             hclenLengths.len = 19;
@@ -495,17 +540,19 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
 
                 // u8 value = (a.value << 2) | (b.value << 1) | c.value;
                 u8 value = a.value | (b.value << 1) | (c.value << 2);
+                dynar_set(u8, &hclenLengths, DeflateCodeLenValues[i], value);
 
-                *((u8 *)(hclenLengths.mem.s) + DeflateCodeLenValues[i]) = value;
+                // *((u8 *)(hclenLengths.mem.s) + DeflateCodeLenValues[i]) = value;
 
                 // bool result;
                 // dynar_append(&hclenLengths, u8, value, result);
                 // if(!result) return memnull;
             }
 
-            for(int i = 0; i < hclenLengths.len; i++) {
-                // printf("HCLEN: %d\n", dynar_index(u8, hclenLengths, i));
-            }
+            // for(int i = 0; i < hclenLengths.len; i++) {
+            //     printf("DE HCLEN: %d\n", dynar_index(u8, &hclenLengths, i));
+            // }
+
 
             DeflateDeCompTable hclenTable = Deflate_generateDeCompTable(hclenLengths, ALLOC);
             FreeC(ALLOC, hclenLengths.mem.s);
@@ -538,6 +585,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 }
 
                 DeflateDeCompElement entry = hclenTable.list[index];
+
                 if(entry.value >= 19) return memnull;
                 // byte value = DeflateCodeLenValues[entry.value];
                 byte value = entry.value;
@@ -634,8 +682,6 @@ bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz l
         if(!result) return false;
     }
 
-    printf("BIGLEN: %d\n", nodes->len);
-
     if(nodes->len == 1) {
         DeflateTreeNode *node = dynar_index(DeflateTreeNode *, nodes, 0);
         Deflate_incrementNode(node);
@@ -704,6 +750,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
 
         bool condition = raw.len - thisPos > 1;
         while(lookupPos < thisPos && condition) {
+            if(thisPos >= raw.len - 2) break;
             Mem a = mkMem(raw.s + thisPos, thisLen);
             Mem b = mkMem(raw.s + lookupPos, lookupLen);
 
@@ -731,7 +778,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
             continue;
         }
 
-        bool found = foundLen != 0;
+        bool found = foundLen >= 3;
         if(found) {
             thisLen = foundLen;
 
@@ -760,19 +807,19 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         if(!result) return memnull;
     }
 
-    for(int i = 0; i < values.len; i++) {
-        DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
-        if(false){}
-        else if(v.type == DEFLATE_ITEM_LIT) {
-            printf("LIT %x\n", v.value);
-        }
-        else if(v.type == DEFLATE_ITEM_LEN) {
-            printf("LEN %d\n", v.value);
-        }
-        else if(v.type == DEFLATE_ITEM_DIST) {
-            printf("DIST %d\n", v.value);
-        }
-    }
+    // for(int i = 0; i < values.len; i++) {
+    //     DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
+    //     if(false){}
+    //     else if(v.type == DEFLATE_ITEM_LIT) {
+    //         printf("LIT %x\n", v.value);
+    //     }
+    //     else if(v.type == DEFLATE_ITEM_LEN) {
+    //         printf("LEN %d\n", v.value);
+    //     }
+    //     else if(v.type == DEFLATE_ITEM_DIST) {
+    //         printf("DIST %d\n", v.value);
+    //     }
+    // }
 
     u32 litlenFreq[286] = {0};
     u32 distFreq[30] = {0};
@@ -807,15 +854,40 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     result = Deflate_compress_generateCodeLengths(&nodes, 30, distFreq, distCodeLen);
     if(!result) return memnull;
 
+    u16 litlenCodeLenLen = 0;
     for(int i = 0; i < 286; i++) {
-        if(litlenCodeLen[i] == 0) continue;
-        printf("CODE LEN: %d %d\n", i, litlenCodeLen[i]);
+        if(litlenCodeLen[i] != 0) litlenCodeLenLen = i;
     }
+    litlenCodeLenLen++;
+    if(litlenCodeLenLen < 257) litlenCodeLenLen = 257;
 
+    u16 distCodeLenLen = 0;
     for(int i = 0; i < 30; i++) {
-        if(distCodeLen[i] == 0) continue;
-        printf("DIST CODE LEN: %d %d\n", i, distCodeLen[i]);
+        if(distCodeLen[i] != 0) distCodeLenLen = i;
     }
+    distCodeLenLen++;
+    if(distCodeLenLen < 1) distCodeLenLen = 1;
+
+    u8 totalCodeLen[316] = {0};
+    mem_copy(mkMem((byte *)totalCodeLen, litlenCodeLenLen),
+             mkMem((byte *)litlenCodeLen, litlenCodeLenLen));
+    mem_copy(mkMem((byte *)totalCodeLen + litlenCodeLenLen, distCodeLenLen),
+             mkMem((byte *)distCodeLen, distCodeLenLen));
+    u16 totalCodeLenLen = litlenCodeLenLen + distCodeLenLen;
+
+    // printf("LITLEN %d\n", litlenCodeLenLen);
+    // printf("DIST %d\n", distCodeLenLen);
+    // printf("TOTAL %d\n", totalCodeLenLen);
+
+    // for(int i = 0; i < 286; i++) {
+    //     if(litlenCodeLen[i] == 0) continue;
+    //     printf("CODE LEN: %d %d\n", i, litlenCodeLen[i]);
+    // }
+    //
+    // for(int i = 0; i < 30; i++) {
+    //     if(distCodeLen[i] == 0) continue;
+    //     printf("DIST CODE LEN: %d %d\n", i, distCodeLen[i]);
+    // }
 
     Dynar(u8) litlenDynar = (Dynar(u8)){ .mem = mkMem((void *)litlenCodeLen, 286), .len = 286 };
     Dynar(u8) distDynar = (Dynar(u8)){ .mem = mkMem((void *)distCodeLen, 30), .len = 30 };
@@ -835,7 +907,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         bool isDist = i >= 256;
         int fix = isDist ? i - 256 : i;
         for(int j = 0; j < litlen.len; j++) {
-            if(litlen.list[j].value == i && litlen.list[j].isDist == isDist) {
+            if(litlen.list[j].value == fix && (litlen.list[j].isDist == isDist)) {
                 if(isDist) {
                     table.len[fix].code = litlen.list[j].code;
                     table.len[fix].codeLen = litlen.list[j].codeLen;
@@ -844,6 +916,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
                     table.lit[i].code = litlen.list[j].code;
                     table.lit[i].codeLen = litlen.list[j].codeLen;
                 }
+                break;
             }
         }
     }
@@ -853,11 +926,187 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
             if(dist.list[j].value == i) {
                 table.dist[i].code = dist.list[j].code;
                 table.dist[i].codeLen = dist.list[j].codeLen;
+                break;
             }
         }
     }
 
-    return memnull;
+    // for(int i = 0; i < 30; i++) {
+    //     printf("TABLELEN %d %d\n", i, table.len[i].codeLen);
+    // }
+
+    Dynar(DeflateHclenValue) hclenLenCodes = mkDynar(DeflateHclenValue);
+    for(int i = 0; i < totalCodeLenLen; i++) {
+        u8 len = totalCodeLen[i];
+        u8 amount = 1;
+        while(i < totalCodeLenLen - 1 && ((len == 0 && amount < 138) || (len != 0 && amount < 7)) && totalCodeLen[i + 1] == len) { amount += 1; i += 1; }
+
+        if((len == 0 && amount < 3) || (len != 0 && amount < 4)) {
+            for(int j = 0; j < amount; j++) {
+                bool result;
+                dynar_append(&hclenLenCodes, DeflateHclenValue, mkDeflateHItemCode(len), result);
+                if(!result) return memnull;
+            }
+            continue;
+        }
+
+        if(len != 0) {
+            bool result;
+            dynar_append(&hclenLenCodes, DeflateHclenValue, mkDeflateHItemCode(len), result);
+            if(!result) return memnull;
+
+            dynar_append(&hclenLenCodes, DeflateHclenValue, mkDeflateHItemCopy(amount - 1), result);
+            if(!result) return memnull;
+        }
+        else {
+            if(amount >= 11) {
+                dynar_append(&hclenLenCodes, DeflateHclenValue, mkDeflateHItemZero7(amount), result);
+            }
+            else {
+                dynar_append(&hclenLenCodes, DeflateHclenValue, mkDeflateHItemZero3(amount), result);
+            }
+        }
+    }
+
+    // for(int i = 0; i < hclenLenCodes.len; i++) {
+    //     DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
+    //     if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
+    //         printf("HCLEN CODE %d\n", val.value);
+    //     }
+    //     else {
+    //         printf("HCLEN TYPE %d\n", val.type);
+    //     }
+    // }
+
+    u32 hclenFreq[19] = {0};
+    for(int i = 0; i < hclenLenCodes.len; i++) {
+        DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
+        if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
+            hclenFreq[val.value] += 1;
+        }
+        else {
+            hclenFreq[val.type] += 1;
+        }
+    }
+
+    u8 hclenLen[19] = {0};
+    nodes.len = 0;
+    result = Deflate_compress_generateCodeLengths(&nodes, 19, hclenFreq, hclenLen);
+    if(!result) return memnull;
+
+    u8 hclenLenLen = 0;
+    for(int i = 0; i < 19; i++) {
+        u8 index = DeflateCodeLenValues[i];
+        if(hclenLen[index] != 0) hclenLenLen = i;
+    }
+    hclenLenLen++;
+    if(hclenLenLen < 4) hclenLenLen = 4;
+
+    Dynar(u8) hclenDynar = (Dynar(u8)){ .mem = mkMem((void *)hclenLen, 19), .len = 19 };
+    DeflateDeCompTable hclen = Deflate_generateDeCompTable(hclenDynar, ALLOC);
+    if(isNone(hclen)) return memnull;
+
+    DeflateCompElement *hclenTable = (void *)AllocateBytes(sizeof(DeflateCompElement) * 19).s;
+    for(int i = 0; i < 19; i++) {
+        for(int j = 0; j < hclen.len; j++) {
+            if(hclen.list[j].value == i) {
+                hclenTable[i].code = hclen.list[j].code;
+                hclenTable[i].codeLen = hclen.list[j].codeLen;
+                break;
+            }
+        }
+    }
+
+    // final block
+    bitstream_write(&out, 1);
+
+    // dynamic huffman
+    bitstream_write(&out, 0);
+    bitstream_write(&out, 1);
+
+    for(int i = 0; i < 5; i++) {
+        bitstream_write(&out, ((litlenCodeLenLen - 257) >> i) & 1);
+    }
+
+    for(int i = 0; i < 5; i++) {
+        bitstream_write(&out, ((distCodeLenLen - 1) >> i) & 1);
+    }
+
+    for(int i = 0; i < 4; i++) {
+        bitstream_write(&out, ((hclenLenLen - 4) >> i) & 1);
+    }
+
+    for(int i = 0; i < hclenLenLen; i++) {
+        u8 index = DeflateCodeLenValues[i];
+        u8 len = hclenLen[index];
+        bitstream_writeN(&out, len, 3);
+    }
+
+    for(int i = 0; i < hclenLenCodes.len; i++) {
+        DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
+
+        if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
+            DeflateCompElement ce = hclenTable[val.value];
+            bool result = Deflate_writeCompElement(&out, ce);
+            if(!result) return memnull;
+        }
+        else {
+            DeflateCompElement ce = hclenTable[val.type];
+            bool result = Deflate_writeCompElement(&out, ce);
+            if(!result) return memnull;
+
+            if(val.type == DEFLATE_HCLEN_ITEM_COPY_2) {
+                result = bitstream_writeN(&out, val.value - 3, 2);
+            }
+            else if(val.type == DEFLATE_HCL_REPEAT_ZERO_3) {
+                result = bitstream_writeN(&out, val.value - 3, 3);
+            }
+            else if(val.type == DEFLATE_HCL_REPEAT_ZERO_7) {
+                result = bitstream_writeN(&out, val.value - 11, 7);
+            }
+
+            if(!result) return memnull;
+        }
+    }
+
+    // printf("SEMICOLON COMP %d %x\n", table.lit['\n'].codeLen, table.lit['\n'].code);
+    // printf("SEMICOLON 2 %d %x\n", table.len[2].codeLen, table.len[2].code);
+    // printf("SEMICOLON NULL %d %x\n", table.len[0].codeLen, table.len[0].code);
+
+    for(int i = 0; i < values.len; i++) {
+        DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
+        // printf("VALUE %d %d\n", v.type, v.value);
+        bool result;
+        if(false) {}
+        else if(v.type == DEFLATE_ITEM_LIT) {
+            DeflateCompElement ce = table.lit[v.value];
+            result = Deflate_writeCompElement(&out, ce);
+        }
+        else if(v.type == DEFLATE_ITEM_LEN) {
+            u16 lenIndex = Deflate_lenToIndex(v.value);
+            DeflateCompElement ce = table.len[lenIndex];
+
+            result = Deflate_writeCompElement(&out, ce);
+            u8 ebLen = DeflateLitLenExtraBits[lenIndex];
+            u16 eb = v.value - DeflateLinLenValues[lenIndex];
+            result = result && bitstream_writeN(&out, eb, ebLen);
+        }
+        else if(v.type == DEFLATE_ITEM_DIST) {
+            u16 distIndex = Deflate_distToIndex(v.value);
+            DeflateCompElement ce = table.dist[distIndex];
+    
+            result = Deflate_writeCompElement(&out, ce);
+            u8 ebLen = DeflateDistExtraBits[distIndex];
+            u16 eb = v.value - DeflateDistValues[distIndex];
+            result = result && bitstream_writeN(&out, eb, ebLen);
+        }
+
+        if(!result) return memnull;
+    }
+
+    bitstream_flush(&out);
+
+    return sb_build(sb);
 }
 
 #endif // __LIB_DEFLATE
