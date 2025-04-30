@@ -3,6 +3,7 @@
 
 #include <types.h>
 #include <stream.h>
+#include "deflate.c"
 
 #define GZIP_FLAG_TEXT 0
 #define GZIP_FLAG_CRC16 1
@@ -123,6 +124,9 @@ Mem Gzip_decompress(Mem mem, Alloc *alloc) {
     ResultRead result = stream_read(in, mkMem((byte *)&member, sizeof(GzipMember)));
     if(result.error || result.partial) return memnull;
 
+    if(member.id1 != GZIP_ID1 || member.id2 != GZIP_ID2) return memnull;
+    if(member.compressionMethod != GZIP_COMPRESSION_METHOD_DEFLATE) return memnull;
+
     printf("%x %x\n", member.id1, member.id2);
 
     bool flagText = (member.flags >> GZIP_FLAG_TEXT) & 1;
@@ -183,7 +187,7 @@ Mem Gzip_decompress(Mem mem, Alloc *alloc) {
     result = stream_read(in, mkMem((byte *)&isize, sizeof(u32)));
     if(result.error || result.partial) return memnull;
 
-    if(isize != dresult.mem.len & 0xffffffffL) return memnull;
+    if(isize != (dresult.mem.len & 0xffffffffL)) return memnull;
 
     return dresult.mem;
 }

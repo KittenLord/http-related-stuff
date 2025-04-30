@@ -105,6 +105,7 @@ bool bitstream_writeN(BitStream *bs, u64 val, u8 len) {
 #define DEFLATE_MAX_LEN 258
 #define DEFLATE_MAX_DIST 32768
 
+// TODO: this is bad, remove
 typedef struct {
     bool error;
 
@@ -734,6 +735,7 @@ bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz l
     return true;
 }
 
+// TODO: maybe implement support for preset dictionaries? seems to be easy
 Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc *alloc) {
     if(!useMaxLookupRange) maxLookupRange = DEFLATE_MAX_DIST;
 

@@ -3,3 +3,6 @@ uri/generation
 uri/testing-data.txt
 http/web
 compression/test.gz
+compression/test.zlib
+compression/testc.zlib
+compression/test
