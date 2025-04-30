@@ -17,7 +17,7 @@ int main() {
         // 0x49, 0x4c, 0x4d, 0x4c, 0x4b, 0x4c, 0x07, 0x00
     };
 
-    FILE *file = fopen("./deflate.c", "r");
+    FILE *file = fopen("./test.gz", "r");
     int fd = fileno(file);
     Stream s = mkStreamFd(fd);
     StringBuilder sb = mkStringBuilder();
@@ -25,18 +25,26 @@ int main() {
     while(isJust(c = stream_popChar(&s))) {
         sb_appendChar(&sb, c.value);
     }
-    
     Mem raw = sb_build(sb);
 
-    Mem compressed = Deflate_compress(raw, false, 0, ALLOC);
+    Mem gzip = Gzip_decompress(raw, ALLOC);
+    printf("%p\n", gzip.s);
+
+    // Mem compressed = Deflate_compress(raw, false, 0, ALLOC);
 
 
-    Mem decompressed = Deflate_decompress(compressed, ALLOC);
-    write(STDOUT_FILENO, raw.s, raw.len);
-    write(STDOUT_FILENO, decompressed.s, decompressed.len);
-    printf("raw len %d\n", raw.len);
-    printf("compressed len %d\n", compressed.len);
-    printf("decompressed len %d\n", decompressed.len);
+    // Stream input = mkStreamStr(compressed);
+    // DeflateDeCompResult decompressedResult = Deflate_decompress(&input, ALLOC);
+    // Mem decompressed = decompressedResult.mem;
+    // write(STDOUT_FILENO, raw.s, raw.len);
+    // write(STDOUT_FILENO, decompressed.s, decompressed.len);
+    // printf("raw len %d\n", raw.len);
+    // printf("compressed len %d\n", compressed.len);
+    // printf("decompressed len %d\n", decompressed.len);
+
+    // Mem gzip = Gzip_compress(raw, ALLOC);
+    // printf("gzip len %d\n", gzip.len);
+    write(STDOUT_FILENO, gzip.s, gzip.len);
 
     return 0;
 }

@@ -21,7 +21,7 @@ typedef struct {
     byte currentByte;
     byte bitOffset;
 
-    int times;
+    int bytesConsumed;
 } BitStream;
 
 typedef struct {
@@ -29,7 +29,7 @@ typedef struct {
     bool error;
 } MaybeBit;
 
-#define mkBitStream(stream) ((BitStream){ .s = stream, .currentByte = 0, .bitOffset = 255 })
+#define mkBitStream(stream) ((BitStream){ .s = stream, .currentByte = 0, .bitOffset = 255, .bytesConsumed = 0 })
 
 bool bitstream_fill(BitStream *bs) {
     if(bs->bitOffset <= 7) return true;
@@ -37,6 +37,7 @@ bool bitstream_fill(BitStream *bs) {
     if(isNone(byte)) return false;
     bs->currentByte = byte.value;
     bs->bitOffset = 0;
+    bs->bytesConsumed += 1;
     return true;
 }
 
@@ -50,7 +51,6 @@ MaybeBit bitstream_pop(BitStream *bs) {
     MaybeBit value = bitstream_peek(bs);
     if(isNone(value)) return value;
     bs->bitOffset++;
-    bs->times++;
     return value;
 }
 
@@ -79,7 +79,6 @@ bool bitstream_write(BitStream *bs, bit b) {
 
     bs->currentByte = bs->currentByte | ((b & 1) << bs->bitOffset);
     bs->bitOffset++;
-    bs->times++;
     return true;
 }
 
@@ -105,6 +104,15 @@ bool bitstream_writeN(BitStream *bs, u64 val, u8 len) {
 
 #define DEFLATE_MAX_LEN 258
 #define DEFLATE_MAX_DIST 32768
+
+typedef struct {
+    bool error;
+
+    Mem mem;
+    usz consumed;
+} DeflateDeCompResult;
+#define mkDeflateDeCompResult(m, c) ((DeflateDeCompResult){ .mem = (m), .consumed = (c) })
+#define DeflateNone none(DeflateDeCompResult)
 
 #define DEFLATE_HCLEN_ITEM_CODE 1
 #define DEFLATE_HCLEN_ITEM_COPY_2 16
@@ -466,10 +474,8 @@ bool Deflate_decompress_block_noncomp(Stream *in, Stream *out, Alloc *alloc) {
     return true;
 }
 
-Mem Deflate_decompress(Mem raw, Alloc *alloc) {
-    Stream inByte = mkStreamStr(raw);
-    BitStream in = mkBitStream(&inByte);
-    in.times = 0;
+DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
+    BitStream in = mkBitStream(raw);
 
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
@@ -478,36 +484,36 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
     bool finalBlock = false;
     do {
         MaybeBit final = bitstream_pop(&in);
-        if(isNone(final)) return memnull;
+        if(isNone(final)) return DeflateNone;
         if(final.value) finalBlock = true;
 
         MaybeBit a = bitstream_pop(&in);
         MaybeBit b = bitstream_pop(&in);
-        if(isNone(a) || isNone(b)) return memnull; // shouldn't ever happen
+        if(isNone(a) || isNone(b)) return DeflateNone; // shouldn't ever happen
         
         byte blockType = a.value | (b.value << 1);
         if(blockType == DEFLATE_BLOCK_NON_COMPRESSED) {
             bitstream_discard(&in);
             bool result = Deflate_decompress_block_noncomp(in.s, &out, ALLOC);
-            if(!result) return memnull;
+            if(!result) return DeflateNone;
         }
         else if(blockType == DEFLATE_BLOCK_FIXED_HUFFMAN) {
             Dynar(u8) litlenDynar = mkDynarML(u8, mkMem(DeflateLitLenLengths, 288), 288);
             Dynar(u8) distDynar = mkDynarML(u8, mkMem(DeflateDistLengths, 32), 32);
 
             DeflateDeCompTable litlen = Deflate_generateDeCompTable(litlenDynar, ALLOC);
-            if(isNone(litlen)) return memnull;
+            if(isNone(litlen)) return DeflateNone;
             DeflateDeCompTable dist = Deflate_generateDeCompTable(distDynar, ALLOC);
-            if(isNone(dist)) return memnull;
+            if(isNone(dist)) return DeflateNone;
 
             bool result = Deflate_decompress_block_huffman(&in, &out, &sb, &litlen, &dist);
-            if(!result) return memnull;
+            if(!result) return DeflateNone;
         }
         else if(blockType == DEFLATE_BLOCK_DYNAMIC_HUFFMAN) {
             u16 hlit = 0;
             for(int i = 0; i < 5; i++) {
                 MaybeBit b = bitstream_pop(&in);
-                if(isNone(b)) return memnull;
+                if(isNone(b)) return DeflateNone;
                 // hlit = (hlit << 1) | b.value;
                 hlit = hlit | (b.value << i);
             }
@@ -516,7 +522,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
             u8 hdist = 0;
             for(int i = 0; i < 5; i++) {
                 MaybeBit b = bitstream_pop(&in);
-                if(isNone(b)) return memnull;
+                if(isNone(b)) return DeflateNone;
                 // hdist = (hdist << 1) | b.value;
                 hdist = hdist | (b.value << i);
             }
@@ -525,7 +531,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
             u8 hclen = 0;
             for(int i = 0; i < 4; i++) {
                 MaybeBit b = bitstream_pop(&in);
-                if(isNone(b)) return memnull;
+                if(isNone(b)) return DeflateNone;
                 // hclen = (hclen << 1) | b.value;
                 hclen = hclen | (b.value << i);
             }
@@ -538,7 +544,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 MaybeBit a = bitstream_pop(&in);
                 MaybeBit b = bitstream_pop(&in);
                 MaybeBit c = bitstream_pop(&in);
-                if(isNone(a) || isNone(b) || isNone(c)) return memnull;
+                if(isNone(a) || isNone(b) || isNone(c)) return DeflateNone;
 
                 // u8 value = (a.value << 2) | (b.value << 1) | c.value;
                 u8 value = a.value | (b.value << 1) | (c.value << 2);
@@ -565,10 +571,10 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                 usz index = 0;
 
                 while(true) {
-                    if(codeLen >= 8) return memnull;
+                    if(codeLen >= 8) return DeflateNone;
 
                     MaybeBit b = bitstream_pop(&in);
-                    if(isNone(b)) return memnull;
+                    if(isNone(b)) return DeflateNone;
                     code = code | (b.value << offset);
 
                     offset--;
@@ -576,7 +582,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                     while(index < hclenTable.len && (code > hclenTable.list[index].code || codeLen > hclenTable.list[index].codeLen)) {
                         index++;
                     }
-                    if(index >= hclenTable.len) return memnull;
+                    if(index >= hclenTable.len) return DeflateNone;
 
                     if(code == hclenTable.list[index].code && codeLen == hclenTable.list[index].codeLen) {
                         break;
@@ -585,7 +591,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
 
                 DeflateDeCompElement entry = hclenTable.list[index];
 
-                if(entry.value >= 19) return memnull;
+                if(entry.value >= 19) return DeflateNone;
                 // byte value = DeflateCodeLenValues[entry.value];
                 byte value = entry.value;
 
@@ -594,19 +600,19 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
 
                     bool result;
                     dynar_append(&hlitAndHdistLengths, u8, value, result);
-                    if(!result) return memnull;
+                    if(!result) return DeflateNone;
                 }
                 else if(value == DEFLATE_HCL_COPY_PREVIOUS_2) {
                     MaybeBit a = bitstream_pop(&in);
                     MaybeBit b = bitstream_pop(&in);
-                    if(isNone(a) || isNone(b)) return memnull;
+                    if(isNone(a) || isNone(b)) return DeflateNone;
                     // usz times = (a.value << 1) | b.value;
                     usz times = a.value | (b.value << 1);
                     times += 3;
                     for(int i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, last, result);
-                        if(!result) return memnull;
+                        if(!result) return DeflateNone;
                     }
                 }
                 else if(value == DEFLATE_HCL_REPEAT_ZERO_3) {
@@ -614,7 +620,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                     usz times = 0;
                     for(int i = 0; i < 3; i++) {
                         MaybeBit b = bitstream_pop(&in);
-                        if(isNone(b)) return memnull;
+                        if(isNone(b)) return DeflateNone;
                         // times = (times << 1) | b.value;
                         times = times | (b.value << i);
                     }
@@ -622,7 +628,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                     for(int i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, 0, result);
-                        if(!result) return memnull;
+                        if(!result) return DeflateNone;
                     }
                 }
                 else if(value == DEFLATE_HCL_REPEAT_ZERO_7) {
@@ -630,7 +636,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                     usz times = 0;
                     for(int i = 0; i < 7; i++) {
                         MaybeBit b = bitstream_pop(&in);
-                        if(isNone(b)) return memnull;
+                        if(isNone(b)) return DeflateNone;
                         // times = (times << 1) | b.value;
                         times = times | (b.value << i);
                     }
@@ -638,10 +644,10 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
                     for(int i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, 0, result);
-                        if(!result) return memnull;
+                        if(!result) return DeflateNone;
                     }
                 }
-                else { return memnull; }
+                else { return DeflateNone; }
             }
 
             Dynar(u8) hlitLengths = hlitAndHdistLengths;
@@ -656,7 +662,7 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
             DeflateDeCompTable dist = Deflate_generateDeCompTable(hdistLengths, ALLOC);
 
             bool result = Deflate_decompress_block_huffman(&in, &out, &sb, &litlen, &dist);
-            if(!result) return memnull;
+            if(!result) return DeflateNone;
 
             Free(litlen.list);
             Free(dist.list);
@@ -664,11 +670,11 @@ Mem Deflate_decompress(Mem raw, Alloc *alloc) {
             Free(hclenTable.list);
         }
         else {
-            return memnull;
+            return DeflateNone;
         }
     } while(!finalBlock);
 
-    return sb_build(sb);
+    return mkDeflateDeCompResult(sb_build(sb), in.bytesConsumed);
 }
 
 bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz len, u32 freq[], u8 codeLen[]) {
