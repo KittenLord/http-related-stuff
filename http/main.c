@@ -12,11 +12,6 @@
 
 #include "http.c"
 
-// NOTE: I suspect the current router system (lock for router
-// and per route) is horribly inefficient, but I'll return to
-// this later. Right now I just want to make a functional
-// prototype
-
 typedef struct {
     Stream *s;
     Map *headers;
@@ -372,12 +367,12 @@ void *threadRoutine(void *_connection) {
 
     route->callback(&context, route->argument);
 
-    MapIter *iter = map_iter(&headers);
-    while(!map_iter_end(iter)) {
-        printf("HEADER NAME: %s\n", iter->key.s);
-        printf("HEADER VALUE: %s\n", iter->val.s);
+    MapIter iter = map_iter(&headers);
+    while(!map_iter_end(&iter)) {
+        MapEntry entry = map_iter_next(&iter);
+        printf("HEADER NAME: %s\n", entry.key.s);
+        printf("HEADER VALUE: %s\n", entry.val.s);
         printf("-----------\n");
-        iter = map_iter_next(iter);
     }
 
     // Http_writeStatusLine(&s, 1, 1, 404, mkString("aboba"));

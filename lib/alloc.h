@@ -20,8 +20,8 @@ struct Alloc {
     void *data;
 };
 
-Mem  malloc_alloc(Alloc *a, usz size) { Mem m = mkMem(calloc(size, sizeof(byte)), size); if(m.s == null) return memnull; return m; }
-void malloc_free(Alloc *a, ptr p) { free(p); }
+Mem  malloc_alloc(Alloc *a, usz size) { a = a; Mem m = mkMem(calloc(size, sizeof(byte)), size); if(m.s == null) return memnull; return m; }
+void malloc_free(Alloc *a, ptr p) { a = a; free(p); }
 void malloc_reset(Alloc *a) { a = a; }
 void malloc_kill(Alloc *a) { a = a; }
 

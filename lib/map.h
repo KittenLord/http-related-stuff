@@ -5,114 +5,76 @@
 #include "alloc.h"
 #include "mem.h"
 
-typedef struct MapNode MapNode;
-struct MapNode {
+typedef struct {
     Mem key;
     Mem val;
-
-    MapNode *next;
-};
-
-typedef MapNode MapIter;
+} MapEntry;
 
 typedef struct {
-    MapNode *nodes;
+    Dynar(MapEntry) map;
     Alloc *alloc;
 } Map;
 
+typedef struct {
+    Map *map;
+    usz index;
+} MapIter;
+
 #define mkMap() mkMapA(&ALLOC)
-#define mkMapA(_alloc) ((Map){ .alloc = (_alloc) })
+#define mkMapA(a) ((Map){ .map = mkDynarA(MapEntry, a), .alloc = (a) })
 
-bool map_iter_end(MapNode *node) {
-    return node == null;
+bool map_iter_end(MapIter *iter) {
+    return iter->index >= iter->map->map.len;
 }
 
-MapNode *map_iter_next(MapNode *node) {
-    return node->next;
+MapEntry map_iter_next(MapIter *iter) {
+    MapEntry entry = dynar_index(MapEntry, &iter->map->map, iter->index);
+    iter->index++;
+    return entry;
 }
 
-MapNode *map_iter(Map *map) {
-    return map->nodes;
-}
-
-usz map_depth(MapNode *node) {
-    usz result = 0;
-    while(node != null) {
-        result++;
-        node = node->next;
-    }
-    return result;
+MapIter map_iter(Map *map) {
+    return (MapIter){ .map = map, .index = 0 };
 }
 
 void map_set(Map *map, Mem key, Mem val) {
-    if(!map->nodes) {
-        map->nodes = (void *)AllocateBytesC(map->alloc, sizeof(MapNode)).s;
-        map->nodes->key = mem_clone(key, map->alloc);
-        map->nodes->val = mem_clone(val, map->alloc);
-        return;
+    usz i = 0;
+    for(i = 0; i < map->map.len; i++) {
+        if(mem_eq(dynar_index(MapEntry, &map->map, i).key, key)) break;
     }
-
-    MapNode *current = map->nodes;
-    while(current != null && !mem_eq(current->key, key)) {
-        current = current->next;
+    bool found = i < map->map.len;
+    if(found && mem_eq(dynar_index(MapEntry, &map->map, i).val, val)) return;
+    val = mem_clone(val, map->alloc);
+    if(found) {
+        key = dynar_index(MapEntry, &map->map, i).key;
+        dynar_set(MapEntry, &map->map, i, ((MapEntry){ .key = key, .val = val }));
     }
-
-    if(current == null) {
-        MapNode *temp = map->nodes;
-        map->nodes = null;
-        map_set(map, key, val);
-        map->nodes->next = temp;
-        return;
+    else {
+        key = mem_clone(key, map->alloc);
+        dynar_append(&map->map, MapEntry, ((MapEntry){ .key = key, .val = val }), _);
     }
-    
-    FreeC(map->alloc, current->val.s);
-    current->val = mem_clone(val, map->alloc);
-    return;
 }
 
 Mem map_get(Map *map, Mem key) {
-    MapNode *current = map->nodes;
-    while(current != null && !mem_eq(current->key, key)) {
-        current = current->next;
+    for(usz i = 0; i < map->map.len; i++) {
+        MapEntry entry = dynar_index(MapEntry, &map->map, i);
+        if(mem_eq(key, entry.key)) return entry.val;
     }
-
-    if(current == null) return memnull;
-    return current->val;
+    return memnull;
 }
 
 void map_remove(Map *map, Mem key) {
-    if(map->nodes == null) return;
-
-    if(mem_eq(map->nodes->key, key)) {
-        FreeC(map->alloc, map->nodes->key.s);
-        FreeC(map->alloc, map->nodes->val.s);
-        map->nodes = map->nodes->next;
-        return;
+    for(usz i = 0; i < map->map.len; i++) {
+        MapEntry entry = dynar_index(MapEntry, &map->map, i);
+        if(mem_eq(key, entry.key)) {
+            dynar_remove(MapEntry, &map->map, i);
+            return;
+        }
     }
-
-    MapNode *current = map->nodes;
-    while(current->next != null && !mem_eq(current->next->key, key)) {
-        current = current->next;
-    }
-
-    if(current->next == null) return;
-
-    FreeC(map->alloc, current->next->key.s);
-    FreeC(map->alloc, current->next->val.s);
-    current->next = current->next->next;
-    return;
 }
 
 bool map_has(Map *map, Mem key) {
-    if(map->nodes == null) return false;
-
-    MapNode *current = map->nodes;
-    while(current != null && !mem_eq(current->key, key)) {
-        current = current->next;
-    }
-
-    if(current == null) return false;
-    else                return true;
+    return !isNull(map_get(map, key));
 }
 
 #endif // __LIB_MAP

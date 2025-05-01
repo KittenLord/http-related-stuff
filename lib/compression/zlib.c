@@ -92,10 +92,12 @@ Mem Zlib_decompress(Mem mem, Alloc *alloc) {
 
     byte compressionMethod = zs.cmf & 0b1111;
     byte compressionInfo = (zs.cmf >> 4) & 0b1111;
+    compressionInfo = compressionInfo;
     if(compressionMethod != ZLIB_METHOD_DEFLATE) return memnull;
 
     bool presetDictionary = ((zs.flags >> 5) & 0b1) == 1;
     u8 compressionLevel = (zs.flags >> 6) & 0b11;
+    compressionLevel = compressionLevel;
 
     if(presetDictionary) {
         u32 dictid = 0;

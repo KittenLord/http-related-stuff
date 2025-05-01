@@ -7,13 +7,7 @@
 #include "mem.h"
 
 typedef struct {
-    MapNode **nodes;
-
-    usz len;
-
-    usz max;
-    usz total;
-
+    Dynar(Map) map;
     Alloc *alloc;
 } Hashmap;
 
@@ -33,12 +27,11 @@ usz fnv64hash(Mem m) {
 // to here
 
 void hm_fix(Hashmap *hm) {
-    if(hm->nodes == null) {
-        hm->nodes = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode *) * 16).s;
-        hm->len = 16;
-        hm->max = 0;
-        hm->total = 0;
-        return;
+    if(isNull(hm->map.mem)) {
+        hm->map = mkDynarAC(32, hm->alloc);
+        for(int i = 0; i < 32; i++) {
+            dynar_append(&hm->map, Map, mkMapA(hm->alloc));
+        }
     }
 
     // TODO: rebalancing if needed
@@ -52,60 +45,17 @@ usz hm_index(usz mod, Mem key) {
 void hm_set(Hashmap *hm, Mem key, Mem val) {
     hm_fix(hm);
     usz index = hm_index(hm->len, key);
-    MapNode *nodes = hm->nodes[index];
 
-    if(nodes == null) {
-        hm->nodes[index] = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode)).s;
-        nodes = hm->nodes[index];
-        nodes->key = mem_clone(key, hm->alloc);
-        nodes->val = mem_clone(val, hm->alloc);
-
-        hm->total++;
-        if(hm->max < 1) hm->max = 1;
-
-        return;
-    }
-
-    if(mem_eq(nodes->key, key)) {
-        FreeC(hm->alloc, nodes->val.s);
-        nodes->val = mem_clone(val, hm->alloc);
-        return;
-    }
-
-    MapNode *current = nodes;
-    int depth = 1;
-    while(current->next != null && !mem_eq(current->next->key, key)) {
-        depth++;
-        current = current->next;
-    }
-
-    if(current->next == null) {
-        current->next = (ptr)AllocateBytesC(hm->alloc, sizeof(MapNode)).s;
-        current->next->key = mem_clone(key, hm->alloc);
-        current->next->val = mem_clone(val, hm->alloc);
-
-        hm->total++;
-        if(hm->max < depth) hm->max = depth;
-
-        return;
-    }
-
-    FreeC(hm->alloc, nodes->val.s);
-    current->next->val = mem_clone(val, hm->alloc);
-
-    return;
+    Map map = dynar_index(Map, hm->map, index);
+    map_set(&map, key, val);
 }
 
 Mem hm_get(Hashmap *hm, Mem key) {
     hm_fix(hm);
     usz index = hm_index(hm->len, key);
-    MapNode *current = hm->nodes[index];
-    while(current != null && !mem_eq(current->key, key)) {
-        current = current->next;
-    }
 
-    if(current == null) return memnull;
-    return current->val;
+    Map map = dynar_index(Map, hm->map, index);
+    return map_get(&map, key);
 }
 
 void hm_remove(Hashmap *hm, Mem key) {

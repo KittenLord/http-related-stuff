@@ -215,7 +215,7 @@ u16 DeflateLinLenValues[30] = {
     67, 83, 99, 115, 131, 163, 195, 227, 258
 };
 
-u16 Deflate_lenToIndex(usz len) {
+i16 Deflate_lenToIndex(usz len) {
     if(len == 258) return 29;
     for(int i = 0; i < 29; i++) {
         if(DeflateLinLenValues[i + 1] <= len) continue;
@@ -255,7 +255,7 @@ u16 DeflateDistValues[30] = {
     1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577
 };
 
-u16 Deflate_distToIndex(usz dist) {
+i16 Deflate_distToIndex(usz dist) {
     if(dist >= 24577) return 29;
     for(int i = 0; i < 29; i++) {
         if(DeflateDistValues[i + 1] <= dist) continue;
@@ -292,8 +292,8 @@ u8 DeflateDistLengths[32] = {
 
 void Deflate_sortDeCompTable(DeflateDeCompTable table) {
     // TODO: quicksort (too lazy now)
-    for(int i = 0; i < table.len - 1; i++) {
-        for(int j = 0; j < table.len - 1 - i; j++) {
+    for(usz i = 0; i < table.len - 1; i++) {
+        for(usz j = 0; j < table.len - 1 - i; j++) {
             if(table.list[j].code > table.list[j + 1].code) {
                 DeflateDeCompElement e = table.list[j];
                 table.list[j] = table.list[j + 1];
@@ -305,7 +305,7 @@ void Deflate_sortDeCompTable(DeflateDeCompTable table) {
 
 DeflateDeCompTable Deflate_generateDeCompTable(Dynar(u8) lengths, Alloc *alloc) {
     u16 blCount[32] = {0};
-    for(int i = 0; i < lengths.len; i++) {
+    for(usz i = 0; i < lengths.len; i++) {
         u8 len = dynar_index(u8, &lengths, i);
         if(len >= 32) return none(DeflateDeCompTable);
         blCount[len]++;
@@ -326,7 +326,7 @@ DeflateDeCompTable Deflate_generateDeCompTable(Dynar(u8) lengths, Alloc *alloc) 
 
     u16 value = 0;
     bool dist = false;
-    for(int i = 0; i < table.len; i++) {
+    for(usz i = 0; i < table.len; i++) {
         u8 len = dynar_index(u8, &lengths, i);
         if(len >= 32) return none(DeflateDeCompTable);
         table.list[i] = (DeflateDeCompElement){
@@ -437,7 +437,7 @@ bool Deflate_decompress_block_huffman(
             if(fdist > sbout->len) return false;
 
             usz origin = (sbout->len - fdist);
-            for(int i = origin; i < origin + len; i++) {
+            for(usz i = origin; i < origin + len; i++) {
                 bool result = sb_appendChar(sbout, sbout->s.s[i]);
                 if(!result) return false;
             }
@@ -610,7 +610,7 @@ DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
                     // usz times = (a.value << 1) | b.value;
                     usz times = a.value | (b.value << 1);
                     times += 3;
-                    for(int i = 0; i < times; i++) {
+                    for(usz i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, last, result);
                         if(!result) return DeflateNone;
@@ -626,7 +626,7 @@ DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
                         times = times | (b.value << i);
                     }
                     times += 3;
-                    for(int i = 0; i < times; i++) {
+                    for(usz i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, 0, result);
                         if(!result) return DeflateNone;
@@ -642,7 +642,7 @@ DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
                         times = times | (b.value << i);
                     }
                     times += 11;
-                    for(int i = 0; i < times; i++) {
+                    for(usz i = 0; i < times; i++) {
                         bool result;
                         dynar_append(&hlitAndHdistLengths, u8, 0, result);
                         if(!result) return DeflateNone;
@@ -679,7 +679,7 @@ DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
 }
 
 bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz len, u32 freq[], u8 codeLen[]) {
-    for(int i = 0; i < len; i++) {
+    for(usz i = 0; i < len; i++) {
         if(freq[i] == 0) continue;
         AllocateVar(DeflateTreeNode, node, mkDeflateLeaf(&codeLen[i], freq[i]));
 
@@ -702,7 +702,7 @@ bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz l
         usz minIndexA = 0;
         usz minIndexB = 0;
 
-        for(int i = 0; i < nodes->len; i++) {
+        for(usz i = 0; i < nodes->len; i++) {
             DeflateTreeNode *node = dynar_index(DeflateTreeNode *, nodes, i);
             if(node->value < minValueA) {
                 minValueA = node->value;
@@ -713,7 +713,7 @@ bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz l
 
         dynar_remove(DeflateTreeNode *, nodes, minIndexA);
 
-        for(int i = 0; i < nodes->len; i++) {
+        for(usz i = 0; i < nodes->len; i++) {
             DeflateTreeNode *node = dynar_index(DeflateTreeNode *, nodes, i);
             if(node->value < minValueB) {
                 minValueB = node->value;
@@ -817,19 +817,19 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     u32 litlenFreq[286] = {0};
     u32 distFreq[30] = {0};
 
-    for(int i = 0; i < values.len; i++) {
+    for(usz i = 0; i < values.len; i++) {
         DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
         if(false){}
         else if(v.type == DEFLATE_ITEM_LIT) {
             litlenFreq[v.value] += 1;
         }
         else if(v.type == DEFLATE_ITEM_LEN) {
-            u16 lenIndex = Deflate_lenToIndex(v.value);
+            i16 lenIndex = Deflate_lenToIndex(v.value);
             if(lenIndex == -1) return memnull;
             litlenFreq[lenIndex + 256] += 1;
         }
         else if(v.type == DEFLATE_ITEM_DIST) {
-            u16 distIndex = Deflate_distToIndex(v.value);
+            i16 distIndex = Deflate_distToIndex(v.value);
             if(distIndex == -1) return memnull;
             distFreq[distIndex] += 1;
         }
@@ -885,7 +885,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     for(int i = 0; i < 286; i++) {
         bool isDist = i >= 256;
         int fix = isDist ? i - 256 : i;
-        for(int j = 0; j < litlen.len; j++) {
+        for(usz j = 0; j < litlen.len; j++) {
             if(litlen.list[j].value == fix && (litlen.list[j].isDist == isDist)) {
                 if(isDist) {
                     table.len[fix].code = litlen.list[j].code;
@@ -901,7 +901,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     }
 
     for(int i = 0; i < 30; i++) {
-        for(int j = 0; j < dist.len; j++) {
+        for(usz j = 0; j < dist.len; j++) {
             if(dist.list[j].value == i) {
                 table.dist[i].code = dist.list[j].code;
                 table.dist[i].codeLen = dist.list[j].codeLen;
@@ -944,7 +944,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     }
 
     u32 hclenFreq[19] = {0};
-    for(int i = 0; i < hclenLenCodes.len; i++) {
+    for(usz i = 0; i < hclenLenCodes.len; i++) {
         DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
         if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
             hclenFreq[val.value] += 1;
@@ -960,7 +960,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
     if(!result) return memnull;
 
     u8 hclenLenLen = 0;
-    for(int i = 0; i < 19; i++) {
+    for(usz i = 0; i < 19; i++) {
         u8 index = DeflateCodeLenValues[i];
         if(hclenLen[index] != 0) hclenLenLen = i;
     }
@@ -973,7 +973,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
 
     DeflateCompElement *hclenTable = (void *)AllocateBytes(sizeof(DeflateCompElement) * 19).s;
     for(int i = 0; i < 19; i++) {
-        for(int j = 0; j < hclen.len; j++) {
+        for(usz j = 0; j < hclen.len; j++) {
             if(hclen.list[j].value == i) {
                 hclenTable[i].code = hclen.list[j].code;
                 hclenTable[i].codeLen = hclen.list[j].codeLen;
@@ -1007,7 +1007,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         bitstream_writeN(&out, len, 3);
     }
 
-    for(int i = 0; i < hclenLenCodes.len; i++) {
+    for(usz i = 0; i < hclenLenCodes.len; i++) {
         DeflateHclenValue val = dynar_index(DeflateHclenValue, &hclenLenCodes, i);
 
         if(val.type == DEFLATE_HCLEN_ITEM_CODE) {
@@ -1034,7 +1034,7 @@ Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc 
         }
     }
 
-    for(int i = 0; i < values.len; i++) {
+    for(usz i = 0; i < values.len; i++) {
         DeflatePrepareValue v = dynar_index(DeflatePrepareValue, &values, i);
         bool result;
         if(false) {}
