@@ -1,1 +1,1 @@
-gcc -O3 -I../lib ./main.c -o ../bin/http-testing -Wall -Wextra -ggdb && ../bin/http-testing
+gcc -I../lib ./main.c -o ../bin/http-testing -Wall -Wextra -ggdb && ../bin/http-testing

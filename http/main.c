@@ -7,6 +7,8 @@
 #include <pthread.h>
 
 #include <stream.h>
+#include <compression/gzip.c>
+#include <compression/zlib.c>
 
 #include "http.c"
 
