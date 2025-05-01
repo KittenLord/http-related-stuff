@@ -1,12 +1,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "deflate.c"
-#include "gzip.c"
-#include "zlib.c"
+#include <compression/deflate.c>
+#include <compression/gzip.c>
+#include <compression/zlib.c>
 
 int main() {
-    FILE *file = fopen("./deflate.c", "r");
+    FILE *file = fopen("test", "r");
     int fd = fileno(file);
     Stream s = mkStreamFd(fd);
     StringBuilder sb = mkStringBuilder();
