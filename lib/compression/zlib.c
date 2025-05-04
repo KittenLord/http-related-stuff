@@ -1,6 +1,9 @@
 #ifndef __LIB_ZLIB
 #define __LIB_ZLIB
 
+// Based on RFC-1950
+// https://datatracker.ietf.org/doc/html/rfc1950
+
 #include <types.h>
 #include <stream.h>
 #include "deflate.c"

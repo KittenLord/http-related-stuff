@@ -1,6 +1,9 @@
 #ifndef __LIB_GZIP
 #define __LIB_GZIP
 
+// Based on RFC-1952
+// https://datatracker.ietf.org/doc/html/rfc1952
+
 #include <types.h>
 #include <stream.h>
 #include "deflate.c"

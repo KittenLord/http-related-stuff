@@ -1,6 +1,9 @@
 #ifndef __LIB_DEFLATE
 #define __LIB_DEFLATE
 
+// Based on RFC-1951
+// https://datatracker.ietf.org/doc/html/rfc1951
+
 #include "types.h"
 #include "mem.h"
 #include "alloc.h"

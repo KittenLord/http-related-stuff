@@ -1,6 +1,9 @@
 #ifndef __LIB_RUNES
 #define __LIB_RUNES
 
+// Based on RFC-3629
+// https://datatracker.ietf.org/doc/html/rfc3629
+
 #include "types.h"
 #include "macros.h"
 

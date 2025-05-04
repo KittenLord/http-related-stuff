@@ -1,8 +1,10 @@
-
-// NOTE: If I got it correctly, the RFC3986 only permits the character set that is used in US-ASCII, and everything else is to be encoded using percent-encodings, so this implementation uses char everywhere (as opposed to runes)
-
 #ifndef __LIB_URI
 #define __LIB_URI
+
+// Based on RFC-3986
+// https://datatracker.ietf.org/doc/html/rfc3986
+
+// NOTE: If I got it correctly, the RFC3986 only permits the character set that is used in US-ASCII, and everything else is to be encoded using percent-encodings, so this implementation uses char everywhere (as opposed to runes)
 
 #include <types.h>
 #include <str.h>

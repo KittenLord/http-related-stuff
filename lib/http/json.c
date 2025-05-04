@@ -1,16 +1,17 @@
-// Specification:
+#ifndef __LIB_JSON
+#define __LIB_JSON
+
+// Based on JSON spec
 // https://www.json.org/json-en.html
-//
+
 // This implementation slightly deviates from the specification,
 // because it supports trailing commas for objects and arrays
+
 // TODO: add comment support
 // TODO: fix number parsing and serializing
 // TODO: test this bad boy
 
 // TODO: replace JSON with Json
-
-#ifndef __LIB_JSON
-#define __LIB_JSON
 
 #include <types.h>
 #include <stream.h>
