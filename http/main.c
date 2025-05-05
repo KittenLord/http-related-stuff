@@ -11,6 +11,7 @@
 #include <compression/zlib.c>
 
 #include "http.c"
+#include <text.h>
 
 typedef struct {
     Stream *s;

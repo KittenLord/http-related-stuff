@@ -9,8 +9,6 @@
 #include "types.h"
 #include "mem.h"
 
-typedef Mem String;
-
 #define mkStringLen(_s, _len) ((String){ .s = (byte *)(_s), .len = (_len) })
 #define mkString(_s) ((String){ .s = (byte *)(_s), .len = strlen((_s)) })
 

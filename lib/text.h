@@ -1,0 +1,96 @@
+#ifndef __LIB_TEXT
+#define __LIB_TEXT
+
+#include "types.h"
+#include "str.h"
+#include "stream.h"
+
+u8 alphabet_hex[16] = {
+    '0', '1', '2', '3', '4',
+    '5', '6', '7', '8', '9',
+    'a', 'b', 'c', 'd', 'e', 'f'
+};
+
+u8 alphabet_base64[64] = {
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+    'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+    'U', 'V', 'W', 'X', 'Y', 'Z',
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+    'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+    'u', 'v', 'w', 'x', 'y', 'z',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    '+', '/'
+};
+
+u8 alphabet_english[26] = {
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+    'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+    'u', 'v', 'w', 'x', 'y', 'z',
+};
+
+bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
+    MaybeChar c;
+
+    if(prefix) {
+        bool r = stream_writeChar(out, '0');
+        if(!r) return false;
+        r = stream_writeChar(out, 'x');
+        if(!r) return false;
+    }
+
+    while(isJust(c = stream_popChar(in))) {
+        u8 lo = c.value & 0b1111;
+        u8 hi = (c.value >> 4) & 0b1111;
+
+        u8 loc = alphabet_hex[lo];
+        u8 hic = alphabet_hex[hi];
+
+        if(capital) {
+            if(loc >= 'a' && loc <= 'f') loc = loc - 'a' + 'A';
+            if(hic >= 'a' && hic <= 'f') hic = hic - 'a' + 'A';
+        }
+
+        bool r = stream_writeChar(out, hic);
+        if(!r) return false;
+        r = stream_writeChar(out, loc);
+        if(!r) return false;
+    }
+
+    return true;
+}
+
+bool base64FromBytes(Stream *in, Stream *out, bool pad, bool urlVersion) {
+    ResultRead result;
+    u32 bufferBack = 0;
+    while(isJust(result = stream_read(in, mkMem((byte *)&bufferBack, 3)))) {
+        u8 len = result.read;
+        if(len == 0) {
+            return true;
+        }
+
+        for(int i = 0; i < len; i++) {
+            u8 a = bufferBack & 0b111111;
+            bufferBack >>= 6;
+            u8 c = alphabet_base64[a];
+
+            if(urlVersion) {
+                if(c == '+') c = '-';
+                else if(c == '/') c = '_';
+            }
+
+            bool r = stream_writeChar(out, c);
+            if(!r) return false;
+        }
+
+        if(pad) {
+            for(int i = 0; i < 3 - len; i++) {
+                bool r = stream_writeChar(out, '=');
+                if(!r) return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+#endif // __LIB_TEXT

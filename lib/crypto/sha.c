@@ -171,7 +171,7 @@ Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool *writtenOne) {
     return result;
 }
 
-Sha_Result160 Sha_Sha1(Mem mem) {
+Sha_Result160 Sha1(Mem mem) {
     // TODO: check max size
 
     u64 len = mem.len;
@@ -313,7 +313,7 @@ Sha_Result256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
     return result;
 }
 
-Sha_Result256 Sha_Sha256(Mem mem) {
+Sha_Result256 Sha256(Mem mem) {
     u32 initial[8] = {
         0x6a09e667,
         0xbb67ae85,
@@ -327,7 +327,7 @@ Sha_Result256 Sha_Sha256(Mem mem) {
     return Sha_Sha256Base(mem, initial);
 }
 
-Sha_Result224 Sha_Sha224(Mem mem) {
+Sha_Result224 Sha224(Mem mem) {
     u32 initial[8] = {
         0xc1059ed8,
         0x367cd507,

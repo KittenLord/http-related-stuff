@@ -70,6 +70,8 @@ typedef struct {
     usz len;
 } Mem;
 
+typedef Mem String;
+
 #define memnull ((Mem){ .s = null, .len = 0 })
 #define mkMem(_s, _len) ((Mem){ .s = (byte *)(_s), .len = (_len) })
 // TODO: should this return true if len == 0?
