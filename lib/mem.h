@@ -6,7 +6,7 @@
 
 #define mkPointer(_v) mkMem((byte *)&_v, sizeof(void *))
 
-#define memIndex(m, i) mkMem((m).s + i, (m).len - i)
+#define memIndex(m, i) mkMem((m).s + i, (i) >= (m).len ? 0 : (m).len - (i))
 #define memLimit(m, i) mkMem((m).s, (i) > (m).len ? (m).len : (i))
 
 bool mem_eq(Mem a, Mem b) {

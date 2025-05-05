@@ -118,7 +118,10 @@ typedef struct {
 } Sha_Result512;
 
 typedef struct {
-    byte data[64];
+    union {
+        byte data[64];
+        u32 words[16];
+    };
 } Sha_Block512;
 
 #define Sha_endian64(x) ( \
@@ -137,15 +140,16 @@ typedef struct {
     ((x & 0x00ff0000) >> (8*1)) | \
     ((x & 0xff000000) >> (8*3)))
 
-Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool writtenOne) {
+Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool *writtenOne) {
     Sha_Block512 result = {0};
     mem_copy(mkMem(result.data, 64), mem);
     if(mem.len >= 64) {
         return result;
     }
 
-    if(!writtenOne) {
+    if(!(*writtenOne)) {
         result.data[mem.len] = 0b1;
+        *writtenOne = true;
     }
 
     u64 *len = (u64 *)((byte *)result.data + 64 - 8);
@@ -157,12 +161,58 @@ Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool writtenOne) {
 Sha_Result160 Sha_Sha1(Mem mem) {
     // TODO: check max size
 
+    u64 len = mem.len;
+
     Sha_Result160 result = {0};
     result.words[0] = 0x67452301;
     result.words[1] = 0xefcdab89;
     result.words[2] = 0x98badcfe;
     result.words[3] = 0x10325476;
     result.words[4] = 0xc3d2e1f0;
+
+    u64 blockCount = (mem.len / 64);
+    if(mem.len % 64 != 0) { blockCount += 1; }
+    if(blockCount == 0) { blockCount += 1; }
+    bool writtenOne = false;
+
+    for(int i = 1; i <= blockCount; i++) {
+        Sha_Block512 block = Sha_getBlock512(mem, len * 8, &writtenOne);
+        mem = memIndex(mem, 64);
+
+
+        u32 W[80] = {0};
+        for(int t = 0; t < 80; t++) {
+            if(t <= 15) {
+                W[t] = block.words[t];
+            }
+            else {
+                W[t] = Sha_rotl32(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
+            }
+        }
+
+        u32 a = result.words[0];
+        u32 b = result.words[1];
+        u32 c = result.words[2];
+        u32 d = result.words[3];
+        u32 e = result.words[4];
+
+        for(int t = 0; t < 80; t++) {
+            u32 T = Sha_rotl32(a, 5) + Sha_ft(t, b, c, d) + e + Sha_K[t] + W[t];
+            e = d;
+            d = c;
+            c = Sha_rotl32(b, 30);
+            b = a;
+            a = T;
+        }
+
+        result.words[0] = a + result.words[0];
+        result.words[1] = b + result.words[1];
+        result.words[2] = c + result.words[2];
+        result.words[3] = d + result.words[3];
+        result.words[4] = e + result.words[4];
+    }
+
+    return result;
 }
 
 #endif // __LIB_SHA2
