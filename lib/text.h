@@ -5,6 +5,9 @@
 #include "str.h"
 #include "stream.h"
 
+// Based on RFC-4686 (base64 specifically, hex is obvious lol)
+// https://datatracker.ietf.org/doc/html/rfc4648
+
 u8 alphabet_hex[16] = {
     '0', '1', '2', '3', '4',
     '5', '6', '7', '8', '9',
@@ -22,6 +25,7 @@ u8 alphabet_base64[64] = {
     '+', '/'
 };
 
+// TODO: maybe change u8 to rune?
 u8 alphabet_english[26] = {
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
     'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
