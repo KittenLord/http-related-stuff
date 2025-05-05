@@ -117,6 +117,13 @@ typedef struct {
 } Sha_Result256;
 
 typedef struct {
+    union {
+        byte data[28];
+        u32 words[7];
+    };
+} Sha_Result224;
+
+typedef struct {
     byte data[64];
 } Sha_Result512;
 
@@ -228,18 +235,18 @@ Sha_Result160 Sha_Sha1(Mem mem) {
     return result;
 }
 
-Sha_Result256 Sha_Sha256(Mem mem) {
+Sha_Result256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
     u64 len = mem.len;
     Sha_Result256 result = {0};
 
-    result.words[0] = 0x6a09e667;
-    result.words[1] = 0xbb67ae85;
-    result.words[2] = 0x3c6ef372;
-    result.words[3] = 0xa54ff53a;
-    result.words[4] = 0x510e527f;
-    result.words[5] = 0x9b05688c;
-    result.words[6] = 0x1f83d9ab;
-    result.words[7] = 0x5be0cd19;
+    result.words[0] = initial[0];
+    result.words[1] = initial[1];
+    result.words[2] = initial[2];
+    result.words[3] = initial[3];
+    result.words[4] = initial[4];
+    result.words[5] = initial[5];
+    result.words[6] = initial[6];
+    result.words[7] = initial[7];
 
     u64 blockCount = (mem.len / 64); // count full blocks
     u64 remainder = mem.len % 64;
@@ -303,6 +310,43 @@ Sha_Result256 Sha_Sha256(Mem mem) {
     result.words[6] = Sha_endian32(result.words[6]);
     result.words[7] = Sha_endian32(result.words[7]);
 
+    return result;
+}
+
+Sha_Result256 Sha_Sha256(Mem mem) {
+    u32 initial[8] = {
+        0x6a09e667,
+        0xbb67ae85,
+        0x3c6ef372,
+        0xa54ff53a,
+        0x510e527f,
+        0x9b05688c,
+        0x1f83d9ab,
+        0x5be0cd19,
+    };
+    return Sha_Sha256Base(mem, initial);
+}
+
+Sha_Result224 Sha_Sha224(Mem mem) {
+    u32 initial[8] = {
+        0xc1059ed8,
+        0x367cd507,
+        0x3070dd17,
+        0xf70e5939,
+        0xffc00b31,
+        0x68581511,
+        0x64f98fa7,
+        0xbefa4fa4,
+    };
+    Sha_Result256 result256 = Sha_Sha256Base(mem, initial);
+    Sha_Result224 result = {0};
+    result.words[0] = result256.words[0];
+    result.words[1] = result256.words[1];
+    result.words[2] = result256.words[2];
+    result.words[3] = result256.words[3];
+    result.words[4] = result256.words[4];
+    result.words[5] = result256.words[5];
+    result.words[6] = result256.words[6];
     return result;
 }
 
