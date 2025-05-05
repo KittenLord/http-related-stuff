@@ -148,12 +148,15 @@ Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool *writtenOne) {
     }
 
     if(!(*writtenOne)) {
-        result.data[mem.len] = 0b1;
+        result.data[mem.len] = 0b10000000;
         *writtenOne = true;
     }
 
-    u64 *len = (u64 *)((byte *)result.data + 64 - 8);
-    *len = Sha_endian64(totalLen);
+    u64 filledBytes = mem.len + 1;
+    if(64 - filledBytes >= 8) {
+        u64 *len = (u64 *)((byte *)result.data + 64 - 8);
+        *len = Sha_endian64(totalLen);
+    }
 
     return result;
 }
@@ -170,9 +173,10 @@ Sha_Result160 Sha_Sha1(Mem mem) {
     result.words[3] = 0x10325476;
     result.words[4] = 0xc3d2e1f0;
 
-    u64 blockCount = (mem.len / 64);
-    if(mem.len % 64 != 0) { blockCount += 1; }
-    if(blockCount == 0) { blockCount += 1; }
+    u64 blockCount = (mem.len / 64); // count full blocks
+    u64 remainder = mem.len % 64;
+    if(remainder != 0) { blockCount += 1; } // count partial block
+    if(remainder == 0 || remainder >= 64 - 9) { blockCount += 1; } // count space for length
     bool writtenOne = false;
 
     for(int i = 1; i <= blockCount; i++) {
@@ -183,7 +187,7 @@ Sha_Result160 Sha_Sha1(Mem mem) {
         u32 W[80] = {0};
         for(int t = 0; t < 80; t++) {
             if(t <= 15) {
-                W[t] = block.words[t];
+                W[t] = Sha_endian32(block.words[t]);
             }
             else {
                 W[t] = Sha_rotl32(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
@@ -211,6 +215,12 @@ Sha_Result160 Sha_Sha1(Mem mem) {
         result.words[3] = d + result.words[3];
         result.words[4] = e + result.words[4];
     }
+
+    result.words[0] = Sha_endian32(result.words[0]);
+    result.words[1] = Sha_endian32(result.words[1]);
+    result.words[2] = Sha_endian32(result.words[2]);
+    result.words[3] = Sha_endian32(result.words[3]);
+    result.words[4] = Sha_endian32(result.words[4]);
 
     return result;
 }
