@@ -10,6 +10,8 @@
 #include "stream.h"
 #include "dynar.h"
 
+// TODO: replace magic numbers, prone to off by one errors
+
 // TODO: Add bounds checking and error handling in some places where I haven't yet
 
 // NOTE: this will probably die a horrible death on any bad input, particularly if
