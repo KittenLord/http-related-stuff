@@ -110,7 +110,10 @@ typedef struct {
 } Sha_Result160;
 
 typedef struct {
-    byte data[32];
+    union {
+        byte data[32];
+        u32 words[8];
+    };
 } Sha_Result256;
 
 typedef struct {
@@ -221,6 +224,84 @@ Sha_Result160 Sha_Sha1(Mem mem) {
     result.words[2] = Sha_endian32(result.words[2]);
     result.words[3] = Sha_endian32(result.words[3]);
     result.words[4] = Sha_endian32(result.words[4]);
+
+    return result;
+}
+
+Sha_Result256 Sha_Sha256(Mem mem) {
+    u64 len = mem.len;
+    Sha_Result256 result = {0};
+
+    result.words[0] = 0x6a09e667;
+    result.words[1] = 0xbb67ae85;
+    result.words[2] = 0x3c6ef372;
+    result.words[3] = 0xa54ff53a;
+    result.words[4] = 0x510e527f;
+    result.words[5] = 0x9b05688c;
+    result.words[6] = 0x1f83d9ab;
+    result.words[7] = 0x5be0cd19;
+
+    u64 blockCount = (mem.len / 64); // count full blocks
+    u64 remainder = mem.len % 64;
+    if(remainder != 0) { blockCount += 1; } // count partial block
+    if(remainder == 0 || remainder >= 64 - 9) { blockCount += 1; } // count space for length
+    bool writtenOne = false;
+
+    for(int i = 1; i <= blockCount; i++) {
+        Sha_Block512 block = Sha_getBlock512(mem, len * 8, &writtenOne);
+        mem = memIndex(mem, 64);
+
+        u32 W[64] = {0};
+        for(int t = 0; t < 64; t++) {
+            if(t <= 15) {
+                W[t] = Sha_endian32(block.words[t]);
+            }
+            else {
+                W[t] = Sha_Sigma256_1(W[t - 2]) + W[t - 7] +
+                       Sha_Sigma256_0(W[t - 15]) + W[t - 16];
+            }
+        }
+
+        u32 a = result.words[0];
+        u32 b = result.words[1];
+        u32 c = result.words[2];
+        u32 d = result.words[3];
+        u32 e = result.words[4];
+        u32 f = result.words[5];
+        u32 g = result.words[6];
+        u32 h = result.words[7];
+
+        for(int t = 0; t < 64; t++) {
+            u32 T1 = h + Sha_CapSigma256_1(e) + Sha_Ch(e, f, g) + Sha_K256[t] + W[t];
+            u32 T2 = Sha_CapSigma256_0(a) + Sha_Maj(a, b, c);
+            h = g;
+            g = f;
+            f = e;
+            e = d + T1;
+            d = c;
+            c = b;
+            b = a;
+            a = T1 + T2;
+        }
+
+        result.words[0] = a + result.words[0];
+        result.words[1] = b + result.words[1];
+        result.words[2] = c + result.words[2];
+        result.words[3] = d + result.words[3];
+        result.words[4] = e + result.words[4];
+        result.words[5] = f + result.words[5];
+        result.words[6] = g + result.words[6];
+        result.words[7] = h + result.words[7];
+    }
+
+    result.words[0] = Sha_endian32(result.words[0]);
+    result.words[1] = Sha_endian32(result.words[1]);
+    result.words[2] = Sha_endian32(result.words[2]);
+    result.words[3] = Sha_endian32(result.words[3]);
+    result.words[4] = Sha_endian32(result.words[4]);
+    result.words[5] = Sha_endian32(result.words[5]);
+    result.words[6] = Sha_endian32(result.words[6]);
+    result.words[7] = Sha_endian32(result.words[7]);
 
     return result;
 }

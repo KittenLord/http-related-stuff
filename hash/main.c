@@ -4,9 +4,9 @@
 #include "sha.c"
 
 int main() {
-    Mem raw = mkString("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Phasellus ac molestie erat. Aliquam ultricies dictum diam, at ornare mi molestie ut. Integer mattis nulla dapibus, porta nibh id, consequat lectus. Proin elementum luctus ullamcorper. Suspendisse ex.");
-    Sha_Result160 hash = Sha_Sha1(raw);
-    write(STDOUT_FILENO, hash.data, 160 / 8);
+    Mem raw = mkString("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus interdum, arcu a ullamcorper aliquam, velit libero mattis diam, vel sagittis felis leo ut massa. Nam porttitor massa ac leo commodo, non suscipit nibh interdum. Donec augue magna, scelerisque vitae luctus id, placerat at metus aliquam.");
+    Sha_Result256 hash = Sha_Sha256(raw);
+    write(STDOUT_FILENO, hash.data, 256 / 8);
 
     return 0;
 }
