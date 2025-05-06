@@ -22,10 +22,10 @@ struct Alloc {
 
 Mem  malloc_alloc(Alloc *a, usz size) {
     a = a; Mem m = mkMem(calloc(size, sizeof(byte)), size);
-    printf("---=== MALLOC %x %d\n", m.s, size);
+    // printf("---=== MALLOC %x %d\n", m.s, size);
     if(m.s == null) return memnull; return m; }
 void malloc_free(Alloc *a, ptr p) {
-    printf("---=== FREE %x\n", p);
+    // printf("---=== FREE %x\n", p);
     a = a; free(p); }
 void malloc_reset(Alloc *a) { a = a; }
 void malloc_kill(Alloc *a) { a = a; }

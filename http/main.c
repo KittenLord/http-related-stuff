@@ -13,14 +13,8 @@
 #include "http.c"
 #include <text.h>
 
-// NOTE: this may be normal, but without limiting process's RAM,
-// the memory usage will be going up and up. Most probably it's
-// due to allocating space for threads, but it's weird how it
-// does not free that, until it's literally on the verge of
-// running out of RAM. Due to that, I can't *really* debug for
-// memory leaks using btop (the best thing I can use is count
-// the allocations in alloc.h, and all memory leaks indicated by
-// that have been eliminated)
+// NOTE: The issue was my lack of knowledge regarding detached/joinable
+// threads, it's all pretty much perfect now
 //
 // https://askubuntu.com/a/1471201
 //
@@ -375,7 +369,7 @@ void *threadRoutine(void *_connection) {
     // TODO: kill the connection after a timeout
     while(true) {
         printf("THREADS %d\n", THREADS);
-        UseAlloc(mkAlloc_LinearExpandable(), {
+        UseAlloc(mkAlloc_LinearExpandableA(ALLOC_GLOBAL), {
         // UseAlloc(*ALLOC_GLOBAL, {
             Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
 
@@ -436,6 +430,8 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
+    ALLOC_PUSH(mkAlloc_LinearExpandable());
+
     int result;
     int sock = result = socket(AF_INET, SOCK_STREAM, 0);
     printf("SOCKET: %d\n", result);
@@ -453,7 +449,7 @@ int main(int argc, char **argv) {
 
     // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
     router = (Router){
-        .alloc = ALLOC_GLOBAL,
+        .alloc = ALLOC,
         .routes = null,
         // .routesDelete = null,
         // .lock = &routerLock,
@@ -479,10 +475,15 @@ int main(int argc, char **argv) {
         pthread_t thread;
         pthread_attr_t threadAttr;
         result = pthread_attr_init(&threadAttr);
+        result = pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
         result = pthread_create(&thread, &threadAttr, threadRoutine, connection);
+        result = pthread_attr_destroy(&threadAttr);
 
         printf("CONNECTION: %d %d\n", csock, thread);
     }
+
+    ALLOC_POP();
+    close(sock);
 
     return 0;
 }
