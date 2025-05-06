@@ -19,4 +19,7 @@
 
 #define GLOBAL
 
+#define pure(result) bool result =
+#define cont(result) result = result &&
+
 #endif // __LIB_MACROS

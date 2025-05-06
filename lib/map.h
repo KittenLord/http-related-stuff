@@ -20,7 +20,7 @@ typedef struct {
     usz index;
 } MapIter;
 
-#define mkMap() mkMapA(&ALLOC)
+#define mkMap() mkMapA(ALLOC)
 #define mkMapA(a) ((Map){ .map = mkDynarA(MapEntry, a), .alloc = (a) })
 
 bool map_iter_end(MapIter *iter) {

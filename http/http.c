@@ -34,6 +34,8 @@ typedef enum {
     HTTP_CONNECT,
     HTTP_OPTIONS,
     HTTP_TRACE,
+
+    HTTP_CUSTOM
 } HttpMethod;
 
 typedef struct {
@@ -160,7 +162,7 @@ bool Http_parseCRLF(Stream *s) {
 
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     // NOTE: As recommended by RFC9112
-    stream_rlimitEnable(s, 8000);
+    // stream_rlimitEnable(s, 8000);
 
     HttpMethod method = Http_parseMethod(s);
     if(method == HTTP_INVALID_METHOD) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
@@ -353,7 +355,7 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String 
     stream_writeChar(s, HTTP_CR);
     stream_writeChar(s, HTTP_LF);
 
-    stream_writeFlush(s);
+    // stream_writeFlush(s);
     return true;
 }
 

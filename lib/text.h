@@ -36,9 +36,8 @@ bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
     MaybeChar c;
 
     if(prefix) {
-        bool r = stream_writeChar(out, '0');
-        if(!r) return false;
-        r = stream_writeChar(out, 'x');
+        pure(r) stream_writeChar(out, '0');
+        cont(r) stream_writeChar(out, 'x');
         if(!r) return false;
     }
 
@@ -54,9 +53,8 @@ bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
             if(hic >= 'a' && hic <= 'f') hic = hic - 'a' + 'A';
         }
 
-        bool r = stream_writeChar(out, hic);
-        if(!r) return false;
-        r = stream_writeChar(out, loc);
+        pure(r) stream_writeChar(out, hic);
+        cont(r) stream_writeChar(out, loc);
         if(!r) return false;
     }
 
@@ -82,16 +80,32 @@ bool base64FromBytes(Stream *in, Stream *out, bool pad, bool urlVersion) {
                 else if(c == '/') c = '_';
             }
 
-            bool r = stream_writeChar(out, c);
-            if(!r) return false;
+            if(!stream_writeChar(out, c)) return false;
         }
 
         if(pad) {
             for(int i = 0; i < 3 - len; i++) {
-                bool r = stream_writeChar(out, '=');
-                if(!r) return false;
+                if(!stream_writeChar(out, '=')) return false;
             }
         }
+    }
+
+    return true;
+}
+
+bool decimalFromUNumber(Stream *out, u64 number) {
+    if(number == 0) { return stream_writeChar(out, '0'); }
+    u64 div = u64decmax;
+    bool hasNonZero = false;
+
+    while(div != 0) {
+        u64 digit = number / div;
+        number %= div;
+        div /= 10;
+        if(digit != 0) hasNonZero = true;
+
+        if(digit == 0 && !hasNonZero) continue;
+        if(!stream_writeChar(out, digit + '0')) return false;
     }
 
     return true;

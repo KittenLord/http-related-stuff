@@ -13,6 +13,20 @@
 #include "http.c"
 #include <text.h>
 
+// NOTE: this may be normal, but without limiting process's RAM,
+// the memory usage will be going up and up. Most probably it's
+// due to allocating space for threads, but it's weird how it
+// does not free that, until it's literally on the verge of
+// running out of RAM. Due to that, I can't *really* debug for
+// memory leaks using btop (the best thing I can use is count
+// the allocations in alloc.h, and all memory leaks indicated by
+// that have been eliminated)
+//
+// https://askubuntu.com/a/1471201
+//
+// Reference command:
+// systemd-run --scope -p MemoryMax=5M --user ../bin/http-testing
+
 typedef struct {
     Stream *s;
     Map *headers;
@@ -187,6 +201,7 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     }
     
     stream_writeFlush(&resultStream);
+    fclose(file);
 
     return sb_build(sb);
 }
@@ -197,7 +212,7 @@ bool routePathMatches(RoutePath *routePath, UriPath uriPathS) {
     UriPathSegment *uriPath = uriPathS.segments;
 
     while(uriPath != null && routePath != null) {
-        printf("URI: %s, ROUTE: %s\n", uriPath->segment.s, routePath->segment.s);
+        // printf("URI: %s, ROUTE: %s\n", uriPath->segment.s, routePath->segment.s);
 
         if(routePath->isWildcard) return true; // all previous segments matched
 
@@ -295,30 +310,49 @@ ROUTER_CALLBACK(testCallback, {
     return false;
 })
 
+bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, header));
+    cont(result) stream_writeChar(context->s, ':');
+    cont(result) stream_writeChar(context->s, ' ');
+    cont(result) flattenStreamResultWrite(stream_write(context->s, value));
+    cont(result) stream_writeChar(context->s, HTTP_CR);
+    cont(result) stream_writeChar(context->s, HTTP_LF);
+
+    return result;
+}
+
+bool Placeholder_AddContentLength(RouteContext *context, u64 length) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Length: ")));
+    cont(result) decimalFromUNumber(context->s, length);
+    cont(result) stream_writeChar(context->s, HTTP_CR);
+    cont(result) stream_writeChar(context->s, HTTP_LF);
+
+    return result;
+}
+
+bool Placeholder_AddContent(RouteContext *context, Mem content) {
+    pure(result) stream_writeChar(context->s, HTTP_CR);
+    cont(result) stream_writeChar(context->s, HTTP_LF);
+    cont(result) flattenStreamResultWrite(stream_write(context->s, content));
+    cont(result) flattenStreamResultWrite(stream_writeFlush(context->s));
+
+    return result;
+}
+
+
 ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     Mem file = getFile(fileTree, context->relatedPath);
-    if(file.s == null) {
-        printf("BAD FILE\n");
+    if(isNull(file)) {
+        // printf("BAD FILE\n");
         return false;
     }
 
-    printf("GOOD FILE\n");
-
-    // printf("FILE READ: %s\n", file.s);
-
     Http_writeStatusLine(context->s, 1, 1, 200, mkString("aboba"));
-    stream_write(context->s, mkString("Content-Length: "));
 
-    byte contentLength[32] = {0};
-    sprintf(contentLength, "%d", file.len);
-    stream_write(context->s, mkString(contentLength));
-
-    stream_writeChar(context->s, HTTP_CR);
-    stream_writeChar(context->s, HTTP_LF);
-    stream_writeChar(context->s, HTTP_CR);
-    stream_writeChar(context->s, HTTP_LF);
-    stream_write(context->s, file);
-    stream_writeFlush(context->s);
+    pure(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
+    cont(result) Placeholder_AddContentLength(context, file.len);
+    cont(result) Placeholder_AddContent(context, file);
+    // printf("RESULT %d\n", result);
 
     return true;
 });
@@ -327,63 +361,76 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
 // it out later [ideally I'll make the backend easily
 // modifiable]), but I'm gonna do threads for now
 
+isz THREADS = 0;
 void *threadRoutine(void *_connection) {
     Connection connection = *(Connection *)_connection;
-    FreeC(ALLOC_GLOBAL, _connection);
+    Free(_connection);
 
     Stream s = mkStreamFd(connection.clientSock);
     stream_wbufferEnable(&s, 4096);
     stream_rbufferEnable(&s, 4096);
 
-    Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC_GLOBAL);
-    Map headers = mkMapA(ALLOC_GLOBAL);
-    while(!Http_parseCRLF(&s)) {
-        HttpError result = Http_parseHeaderField(&s, &headers);
-        bool crlf = Http_parseCRLF(&s);
+    THREADS++;
 
-        printf("ERROR: %d\n", result);
+    // TODO: kill the connection after a timeout
+    while(true) {
+        printf("THREADS %d\n", THREADS);
+        UseAlloc(mkAlloc_LinearExpandable(), {
+        // UseAlloc(*ALLOC_GLOBAL, {
+            Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
+
+            Map headers = mkMap();
+            while(!Http_parseCRLF(&s)) {
+                HttpError result = Http_parseHeaderField(&s, &headers);
+                bool crlf = Http_parseCRLF(&s);
+
+                // printf("ERROR: %d\n", result);
+                if(result != 0) {
+                    ALLOC_POP();
+                    goto cleanup;
+                }
+            }
+
+            // TODO: we have the headers, including the Host, now
+            // we reconstruct the target URI and parse it
+
+            // TODO: with the target URI reconstructed, we can now,
+            // *gulp*, convert the path+query back into a string to
+            // feed to the router
+            // Should I extend the Uri/UriPath structs to include a
+            // string representation? I probably should
+
+            RouteContext context = ((RouteContext){
+                .s = &s,
+                .headers = &headers,
+                .originalPath = requestLine.target.path,
+                .relatedPath = requestLine.target.path,
+            });
+
+            Route *route = getRoute(&router, &context);
+            if(route == null) {
+                // printf("invalid route\n");
+                ALLOC_POP();
+                goto cleanup;
+            }
+
+            route->callback(&context, route->argument);
+
+            MapIter iter = map_iter(&headers);
+            while(!map_iter_end(&iter)) {
+                MapEntry entry = map_iter_next(&iter);
+                // printf("HEADER NAME: %s\n", entry.key.s);
+                // printf("HEADER VALUE: %s\n", entry.val.s);
+                // printf("-----------\n");
+            }
+        });
     }
 
-    // TODO: we have the headers, including the Host, now
-    // we reconstruct the target URI and parse it
-
-    // TODO: with the target URI reconstructed, we can now,
-    // *gulp*, convert the path+query back into a string to
-    // feed to the router
-    // Should I extend the Uri/UriPath structs to include a
-    // string representation? I probably should
-
-    RouteContext context = {
-        .s = &s,
-        .headers = &headers,
-        .originalPath = requestLine.target.path,
-        .relatedPath = requestLine.target.path,
-    };
-
-    Route *route = getRoute(&router, &context);
-    if(route == null) {
-        printf("invalid route\n");
-        return null;
-    }
-
-    route->callback(&context, route->argument);
-
-    MapIter iter = map_iter(&headers);
-    while(!map_iter_end(&iter)) {
-        MapEntry entry = map_iter_next(&iter);
-        printf("HEADER NAME: %s\n", entry.key.s);
-        printf("HEADER VALUE: %s\n", entry.val.s);
-        printf("-----------\n");
-    }
-
-    // Http_writeStatusLine(&s, 1, 1, 404, mkString("aboba"));
-    // stream_write(&s, mkString("Content-Length: 5"));
-    // stream_writeChar(&s, HTTP_CR);
-    // stream_writeChar(&s, HTTP_LF);
-    // stream_writeChar(&s, HTTP_CR);
-    // stream_writeChar(&s, HTTP_LF);
-    // stream_write(&s, mkString("helo!"));
-    // stream_writeFlush(&s);
+cleanup:
+    THREADS--;
+    Free(s.wbuffer.s);
+    Free(s.rbuffer.s);
+    close(connection.clientSock);
 
     return null;
 }
@@ -433,6 +480,8 @@ int main(int argc, char **argv) {
         pthread_attr_t threadAttr;
         result = pthread_attr_init(&threadAttr);
         result = pthread_create(&thread, &threadAttr, threadRoutine, connection);
+
+        printf("CONNECTION: %d %d\n", csock, thread);
     }
 
     return 0;
