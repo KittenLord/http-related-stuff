@@ -13,9 +13,6 @@
 #include "http.c"
 #include <text.h>
 
-// NOTE: The issue was my lack of knowledge regarding detached/joinable
-// threads, it's all pretty much perfect now
-//
 // https://askubuntu.com/a/1471201
 //
 // Reference command:
@@ -44,7 +41,34 @@ typedef struct {
     Dynar(RoutePathSegment) segments;
 } RoutePath;
 
-RoutePath BAD_ROUTE_PATH = { .error = true };
+typedef struct {
+    bool error;
+
+    String subdomain;
+    RoutePath path;
+
+    RouteCallback *callback;
+    Mem argument;
+} Route;
+
+typedef struct {
+    Alloc *alloc;
+
+    Dynar(Route) routes;
+} Router;
+
+typedef struct {
+    Alloc *alloc;
+
+    UriPath basePath;
+} FileTreeRouter;
+
+typedef struct {
+    struct sockaddr_in addr;
+    int clientSock;
+
+    Router *router;
+} Connection;
 
 MaybeString parseRoutePathMatch(Stream *s, Alloc *alloc) {
     stream_popChar(s);
@@ -116,36 +140,6 @@ RoutePath parseRoutePath(Stream *s, Alloc *alloc) {
     return result;
 }
 
-typedef struct Route Route;
-struct Route {
-    String subdomain;
-    RoutePath path;
-
-    RouteCallback *callback;
-    Mem argument;
-
-    // usz accessing;
-    // pthread_mutex_t *lock;
-
-    Route *prev;
-    Route *next;
-};
-
-typedef struct {
-    Alloc *alloc;
-
-    Route *routes;
-    // Route *routesDelete; // pediodically freed
-    //
-    // pthread_mutex_t *lock;
-} Router;
-
-typedef struct {
-    Alloc *alloc;
-
-    UriPath basePath;
-} FileTreeRouter;
-
 FileTreeRouter mkFileTreeRouter(String spath) {
     Alloc *alloc = ALLOC;
     Stream s = mkStreamStr(spath);
@@ -167,9 +161,9 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
 
     StringBuilder sb = mkStringBuilder();
-    for(int i = 0; i < result.segments.len; i++) {
-        sb_appendMem(&sb, dynar_index(String, &result.segments, i));
-        if(i != result.segments.len - 1) {
+    dynar_foreach(String, &result.segments) {
+        sb_appendMem(&sb, loop.it);
+        if(loop.index != result.segments.len - 1) {
             sb_appendChar(&sb, '/');
         }
     }
@@ -201,8 +195,6 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     return sb_build(sb);
 }
 
-Router router;
-
 bool routePathMatches(RoutePath routePath, UriPath uriPath) {
     usz i = 0;
     for(i = 0; i < routePath.segments.len && i < uriPath.segments.len; i++) {
@@ -222,26 +214,27 @@ bool routePathMatches(RoutePath routePath, UriPath uriPath) {
     return false;
 }
 
-Route *getRoute(Router *r, RouteContext *context) {
-    Route *route = r->routes;
-    while(route != null) {
-        if(routePathMatches(route->path, context->relatedPath)) break;
-        route = route->next;
+Route getRoute(Router *r, RouteContext *context) {
+    Route route = none(Route);
+    dynar_foreach(Route, &r->routes) {
+        if(routePathMatches(loop.it.path, context->relatedPath)) {
+            route = loop.it;
+            break;
+        }
     }
 
-    if(route == null) return route;
+    if(isNone(route)) return route;
 
     // TODO: we've found the route, fill the context
     // with all pattern matched path segments, chop
     // off the matched part of the path (for routes
     // that end with /*), etc
 
-    RoutePath routePath = route->path;
+    RoutePath routePath = route.path;
     UriPath relatedPath = context->relatedPath;
 
-    for(int i = 0; i < routePath.segments.len; i++) {
-        RoutePathSegment rs = dynar_index(RoutePathSegment, &routePath.segments, i);
-        if(rs.isWildcard) break;
+    dynar_foreach(RoutePathSegment, &routePath.segments) {
+        if(loop.it.isWildcard) break;
         dynar_remove(String, &relatedPath.segments, 0);
     }
 
@@ -257,35 +250,22 @@ void addRoute(Router *r, String host, String path, RouteCallback callback, Mem a
     // TODO: signal error
     if(isNone(routePath)) return;
 
-    Route routeS = {
+    Route route = {
         .subdomain = host,
         .path = routePath,
         .callback = callback,
         .argument = arg,
     };
 
-    AllocateVarC(Route, route, routeS, r->alloc);
-
-    if(r->routes == null) {
-        r->routes = route;
-        return;
-    }
-
-    Route *parent = r->routes;
-    while(parent->next != null) {
-        parent = parent->next;
-    }
-
-    parent->next = route;
-    route->prev = parent;
+    dynar_append(&r->routes, Route, route, _);
     return;
 }
 
 #define ROUTER_CALLBACK(name,  body) \
-bool name(RouteContext *context, Mem arg) { body; }
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body; } }
 
 #define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { argty* argname = (argty *)arg.s; { body; } }
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty* argname = (argty *)arg.s; { body; } }
 
 ROUTER_CALLBACK(testCallback, {
     printf("helo\n");
@@ -378,7 +358,7 @@ void *threadRoutine(void *_connection) {
             RouteContext context = ((RouteContext){
                 .s = &s,
                 .clientVersion = requestLine.version,
-                .method = requestLine.version,
+                .method = requestLine.method,
                 .headers = &headers,
                 .originalPath = requestLine.target.path,
 
@@ -386,13 +366,13 @@ void *threadRoutine(void *_connection) {
                 .relatedPath = requestLine.target.path,
             });
 
-            Route *route = getRoute(&router, &context);
-            if(route == null) {
+            Route route = getRoute(connection.router, &context);
+            if(isNone(route)) {
                 ALLOC_POP();
                 goto cleanup;
             }
 
-            route->callback(&context, route->argument);
+            route.callback(&context, route.argument);
 
             MapIter iter = map_iter(&headers);
             while(!map_iter_end(&iter)) {
@@ -431,9 +411,9 @@ int main(int argc, char **argv) {
     printf("LISTEN: %d\n", result);
 
     // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
-    router = (Router){
+    Router router = (Router){
         .alloc = ALLOC,
-        .routes = null,
+        .routes = mkDynar(Route),
         // .routesDelete = null,
         // .lock = &routerLock,
     };
@@ -451,6 +431,7 @@ int main(int argc, char **argv) {
         Connection _connection = {
             .addr = caddr,
             .clientSock = csock,
+            .router = &router,
         };
 
         AllocateVarC(Connection, connection, _connection, ALLOC_GLOBAL);

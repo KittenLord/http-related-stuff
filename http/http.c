@@ -70,11 +70,6 @@ typedef struct {
     Http11RequestTarget target;
 } Http11RequestLine;
 
-typedef struct {
-    struct sockaddr_in addr;
-    int clientSock;
-} Connection;
-
 bool Http_parseAny(Stream *s, String list) {
     MaybeChar c;
     bool success = false;
