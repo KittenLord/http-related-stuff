@@ -23,6 +23,9 @@
 
 typedef struct {
     Stream *s;
+
+    HttpVersion clientVersion;
+    HttpMethod method;
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
@@ -374,8 +377,12 @@ void *threadRoutine(void *_connection) {
 
             RouteContext context = ((RouteContext){
                 .s = &s,
+                .clientVersion = requestLine.version,
+                .method = requestLine.version,
                 .headers = &headers,
                 .originalPath = requestLine.target.path,
+
+                // may be modified after getRoute()
                 .relatedPath = requestLine.target.path,
             });
 
