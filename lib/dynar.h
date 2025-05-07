@@ -12,6 +12,8 @@ typedef struct {
 
 #define dynar_index(ty, dynar, index) (((ty *)((dynar)->mem.s))[(index)])
 
+#define dynar_peek(ty, dynar) dynar_index(ty, dynar, (dynar)->len - 1)
+
 #define dynar_set(ty, dynar, index, value) do { (((ty *)((dynar)->mem.s))[(index)] = (value)); } while(false)
 
 #define dynar_remove(ty, dynar, index) do { \
@@ -22,6 +24,8 @@ typedef struct {
     mem_move(mkMem(dst, len), mkMem(src, len)); \
     (dynar)->len -= 1; \
 } while(false)
+
+#define dynar_pop(ty, dynar) dynar_remove(ty, dynar, (dynar)->len - 1)
 
 #define DYNAR_DEFAULT_CAPACITY 32
 
@@ -52,6 +56,7 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
 #define mkDynarA(ty, alloc) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, alloc)
 #define mkDynar(ty) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, ALLOC)
 
+// TODO: swap dynar and ty places, this is getting annoying
 #define dynar_append(dynar, ty, _value, result) { \
     ty ___value = (_value); \
     bool _ = true; \

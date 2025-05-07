@@ -9,6 +9,7 @@
 #include <types.h>
 #include <str.h>
 #include <macros.h>
+#include <dynar.h>
 
 typedef struct {
     byte a;
@@ -53,15 +54,6 @@ typedef struct {
     bool portOverflow;
 } UriAuthority;
 
-typedef struct UriPathSegment UriPathSegment;
-struct UriPathSegment {
-    bool error;
-    u8 errmsg;
-
-    String segment;
-    UriPathSegment *next;
-};
-
 typedef u8 UriPathType;
 #define URI_PATH_EMPTY 0
 #define URI_PATH_ABEMPTY 1
@@ -74,8 +66,7 @@ typedef struct {
 
     UriPathType type;
 
-    usz segmentCount;
-    UriPathSegment *segments;
+    Dynar(String) segments;
 } UriPath;
 
 typedef u8 UriHierarchyPartType;
@@ -327,57 +318,60 @@ MaybeString Uri_parsePcharRawString(Stream *s, Alloc *alloc, bool lowercase, Str
 
 #define SEGMENT_NO_COLON 1
 #define SEGMENT_NON_ZERO 2
-UriPathSegment Uri_parsePathSegment(Stream *s, Alloc *alloc, bool nonZero, bool noColon) {
+MaybeString Uri_parsePathSegment(Stream *s, Alloc *alloc, bool nonZero, bool noColon) {
     MaybeString str = noColon ? Uri_parsePcharRawString(s, alloc, false, mkString("@")) : Uri_parsePcharString(s, alloc, false);
-    if(isNone(str)) return fail(UriPathSegment, str.errmsg);
+    if(isNone(str)) return fail(MaybeString, str.errmsg);
 
     if(noColon) {
         MaybeChar c = stream_peekChar(s);
-        if(isJust(c) && c.value == ':') return fail(UriPathSegment, SEGMENT_NO_COLON);
+        if(isJust(c) && c.value == ':') return fail(MaybeString, SEGMENT_NO_COLON);
     }
 
-    if(nonZero && str.value.len == 0) return fail(UriPathSegment, SEGMENT_NON_ZERO);
+    if(nonZero && str.value.len == 0) return fail(MaybeString, SEGMENT_NON_ZERO);
 
-    UriPathSegment segment = { .segment = str.value };
-    return segment;
+    return str;
 }
 
-UriPath Uri_parsePathAbempty(Stream *s, Alloc *alloc) {
-    UriPath path = {0};
-    UriPathSegment *last = null;
-
+bool Uri_parsePathInternal(UriPath *path, Stream *s, Alloc *alloc) {
     MaybeChar c;
     while(isJust(c = stream_peekChar(s)) && c.value == '/') {
         stream_popChar(s);
 
-        AllocateVarC(UriPathSegment, segment, Uri_parsePathSegment(s, alloc, false, false), alloc);
-        if(isFail(*segment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriPath, mkString("Invalid percent encoding" DEBUG_LOC));
+        MaybeString segmentMaybe = Uri_parsePathSegment(s, alloc, false, false);
+        if(isFail(segmentMaybe, PCHAR_INVALID_PERCENT_ENCODING)) {
+            *path = fail(UriPath, mkString("Invalid percent encoding" DEBUG_LOC));
+            return false;
+        }
 
-        path.segmentCount++;
-        if(last == null) {
-            path.segments = segment;
-            last = segment;
+        // NOTE: I kinda forgot how I handled errors here, may be unnecessary/bad
+        if(isNone(segmentMaybe)) {
+            *path = fail(UriPath, mkString("Something bad happened" DEBUG_LOC));
+            return false;
         }
-        else {
-            last->next = segment;
-            last = segment;
-        }
+
+        dynar_append(&path->segments, String, segmentMaybe.value, _);
     }
 
+    return true;
+}
+
+UriPath Uri_parsePathAbempty(Stream *s, Alloc *alloc) {
+    UriPath path = {0};
+    path.segments = mkDynarCA(String, 8, alloc);
+    if(!Uri_parsePathInternal(&path, s, alloc)) return path;
     return path;
 }
 
 UriPath Uri_parsePathRootlessOrNoscheme(Stream *s, Alloc *alloc, bool noColon) {
-    AllocateVarC(UriPathSegment, initSegment, Uri_parsePathSegment(s, alloc, true, noColon), alloc);
-    if(isNone(*initSegment)) return fail(UriPath, mkString("The first segment of a rootless path cannot be empty" DEBUG_LOC));
+    MaybeString segmentMaybe = Uri_parsePathSegment(s, alloc, true, noColon);
+    if(isNone(segmentMaybe)) return fail(UriPath, mkString("The first segment of a rootless path cannot be empty" DEBUG_LOC));
 
-    UriPath rest = Uri_parsePathAbempty(s, alloc);
-    if(isNone(rest)) return rest;
+    UriPath path = {0};
+    path.segments = mkDynarCA(String, 8, alloc);
+    dynar_append(&path.segments, String, segmentMaybe.value, _);
 
-    initSegment->next = rest.segments;
-    rest.segments = initSegment;
-    rest.segmentCount++;
-    return rest;
+    if(!Uri_parsePathInternal(&path, s, alloc)) return path;
+    return path;
 }
 
 UriPath Uri_parsePathRootless(Stream *s, Alloc *alloc) {
@@ -387,14 +381,12 @@ UriPath Uri_parsePathRootless(Stream *s, Alloc *alloc) {
 }
 
 UriPath Uri_parsePathRootlessOrEmpty(Stream *s, Alloc *alloc) {
-    // NOTE: why the fuck didn't tests catch this
     MaybeChar c = stream_peekChar(s);
     if(isNone(c) || (isJust(c) && !Uri_isPchar(c.value))) {
         UriPath path = {0};
         path.type = URI_HIER_ABSOLUTE;
-        path.segmentCount = 1;
-        AllocateVarC(UriPathSegment, emptySegment, (UriPathSegment){ .segment = mkString("") }, alloc);
-        path.segments = emptySegment;
+        path.segments = mkDynarCA(String, 1, alloc);
+        dynar_append(&path.segments, String, mkString(""), _);
         return path;
     }
     
@@ -655,89 +647,42 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
 }
 
 UriPath Uri_pathMoveRelatively(UriPath base, UriPath move, Alloc *alloc) {
-    UriPath result = { 
-        .segmentCount = 0,
-        .segments = null,
-    };
+    UriPath result = {0};
+    result.segments = mkDynarCA(String, base.segments.len, alloc);
 
-    usz count = 0;
-
-    UriPathSegment *copy = base.segments;
-    UriPathSegment *paste = null;
-    while(copy != null) {
-        String segmentValue = mem_clone(copy->segment, alloc);
-        AllocateVarC(UriPathSegment, segment, ((UriPathSegment){ .segment = segmentValue }), alloc);
-        count += 1;
-        if(paste == null) {
-            paste = segment;
-            result.segments = segment;
-        }
-        else {
-            paste->next = segment;
-            paste = paste->next;
-        }
-
-        copy = copy->next;
+    for(usz i = 0; i < base.segments.len; i++) {
+        String segment = dynar_index(String, &base.segments, i);
+        // we need to clone, cuz base might be using a different allocator
+        dynar_append_clone(&result.segments, segment);
     }
 
-    copy = move.segments;
-    while(copy != null) {
-        if(copy->segment.len == 1 && copy->segment.s[0] == '.') {
-
+    for(usz i = 0; i < move.segments.len; i++) {
+        String segment = dynar_index(String, &move.segments, i);
+        if(mem_eq(segment, mkString("."))) {
+            continue;
         }
-        else if(copy->segment.len == 2 && copy->segment.s[0] == '.' && copy->segment.s[1] == '.' && count != 0) {
-            count -= 1;
-            FreeC(alloc, paste->segment.s);
-            FreeC(alloc, paste);
-
-            if(count == 0) {
-                result.segments = null;
-                paste = null;
-            }
-            else {
-                paste = result.segments;
-
-                // NOTE: we have at least 2 elements in this branch
-                while(paste->next->next != null) {
-                    paste = paste->next;
-                }
-
-                paste->next = null;
-            }
+        else if(mem_eq(segment, mkString(".."))) {
+            if(result.segments.len == 0) continue;
+            dynar_pop(String, &result.segments);
         }
         else {
-            count += 1;
-            String segmentValue = mem_clone(copy->segment, alloc);
-            AllocateVarC(UriPathSegment, segment, ((UriPathSegment){ .segment = segmentValue }), alloc);
-
-            if(paste == null) {
-                paste = segment;
-                result.segments = segment;
-            }
-            else {
-                paste->next = segment;
-                paste = paste->next;
-            }
+            dynar_append_clone(&result.segments, segment);
         }
-
-        copy = copy->next;
     }
 
-    result.segmentCount = count;
     return result;
 }
 
 bool Uri_pathHasPrefix(UriPath prefix, UriPath path) {
-    UriPathSegment *p = prefix.segments;
-    UriPathSegment *c = path.segments;
+    if(prefix.segments.len > path.segments.len) return false;
 
-    while(p != null && c != null) {
-        if(!mem_eq(p->segment, c->segment)) return false;
-        p = p->next;
-        c = c->next;
+    for(usz i = 0; i < prefix.segments.len; i++) {
+        String ls = dynar_index(String, &prefix.segments, i);
+        String rs = dynar_index(String, &path.segments, i);
+        if(!mem_eq(ls, rs)) return false;
     }
 
-    return p == null;
+    return true;
 }
 
 #endif // __LIB_URI

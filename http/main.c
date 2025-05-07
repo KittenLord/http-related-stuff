@@ -30,16 +30,16 @@ typedef struct {
 
 typedef bool (RouteCallback)(RouteContext *, Mem);
 
-typedef struct RoutePath RoutePath;
-struct RoutePath {
-    bool error;
-
-    String segment;
+typedef struct {
     bool isMatch; // match a single segment
     bool isWildcard; // match all (or none) remaining segments
+    String value;
+} RoutePathSegment;
 
-    RoutePath *next;
-};
+typedef struct {
+    bool error;
+    Dynar(RoutePathSegment) segments;
+} RoutePath;
 
 RoutePath BAD_ROUTE_PATH = { .error = true };
 
@@ -62,61 +62,61 @@ MaybeString parseRoutePathMatch(Stream *s, Alloc *alloc) {
     return just(MaybeString, sb_build(sb));
 }
 
-RoutePath *parseRoutePath(Stream *s, Alloc *alloc) {
-    MaybeChar c = stream_peekChar(s);
-    if(isNone(c)) return null;
-    if(c.value != '/') return &BAD_ROUTE_PATH;
-    stream_popChar(s);
+RoutePath parseRoutePath(Stream *s, Alloc *alloc) {
+    RoutePath result = {0};
+    result.segments = mkDynarCA(RoutePathSegment, 8, alloc);
 
-    c = stream_peekChar(s);
-    if(isNone(c)) return null;
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(s))) {
+        if(c.value != '/') return none(RoutePath);
+        stream_popChar(s);
 
-    RoutePath segment = {0};
+        c = stream_peekChar(s);
+        if(isNone(c)) return result; // NOTE: trailing empty segment not counted
 
-    // TODO: allow for escaped '{' and '}'
+        // TODO: allow for escaped '{' and '}'
 
-    if(c.value == '{') {
-        MaybeString matchSegment = parseRoutePathMatch(s, alloc);
-        if(isNone(matchSegment)) return &BAD_ROUTE_PATH;
+        RoutePathSegment segment = {0};
 
-        segment.segment = matchSegment.value;
-        segment.isMatch = true;
-    }
-    else {
-        StringBuilder sb = mkStringBuilder();
-        sb.alloc = alloc;
+        if(c.value == '{') {
+            MaybeString matchSegment = parseRoutePathMatch(s, alloc);
+            if(isNone(matchSegment)) return none(RoutePath);
 
-        // TODO: Most of these allocations are completely unnecessary,
-        // as long as the lifetime of the string behind the stream is
-        // the same as the supposed return value of this... I need to
-        // spend some time thinking about this in general, it's not
-        // like we benefit from the stream being opaque here...
+            segment.value = matchSegment.value;
+            segment.isMatch = true;
+        }
+        else {
+            StringBuilder sb = mkStringBuilder();
+            sb.alloc = alloc;
 
-        while(isJust(c = stream_peekChar(s)) && c.value != '/') {
-            sb_appendChar(&sb, c.value);
-            stream_popChar(s);
+            // TODO: Most of these allocations are completely unnecessary,
+            // as long as the lifetime of the string behind the stream is
+            // the same as the supposed return value of this... I need to
+            // spend some time thinking about this in general, it's not
+            // like we benefit from the stream being opaque here...
+
+            while(isJust(c = stream_peekChar(s)) && c.value != '/') {
+                sb_appendChar(&sb, c.value);
+                stream_popChar(s);
+            }
+
+            segment.value = sb_build(sb);
         }
 
-        segment.segment = sb_build(sb);
+        dynar_append(&result.segments, RoutePathSegment, segment, _);
     }
 
-    RoutePath *next = parseRoutePath(s, alloc);
-    if(next != null && isNone(*next)) return &BAD_ROUTE_PATH;
-
-    segment.next = next;
-
-    if(next == null && segment.segment.len == 1 && segment.segment.s[0] == '*') {
-        segment.isWildcard = true;
+    if(mem_eq(dynar_peek(RoutePathSegment, &result.segments).value, mkString("*"))) {
+        dynar_peek(RoutePathSegment, &result.segments).isWildcard = true;
     }
 
-    AllocateVarC(RoutePath, ret, segment, alloc);
-    return ret;
+    return result;
 }
 
 typedef struct Route Route;
 struct Route {
     String subdomain;
-    RoutePath *path;
+    RoutePath path;
 
     RouteCallback *callback;
     Mem argument;
@@ -164,17 +164,15 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
 
     StringBuilder sb = mkStringBuilder();
-    UriPathSegment *segment = result.segments;
-    while(segment != null) {
-        sb_appendMem(&sb, segment->segment);
-        if(segment->next != null) {
+    for(int i = 0; i < result.segments.len; i++) {
+        sb_appendMem(&sb, dynar_index(String, &result.segments, i));
+        if(i != result.segments.len - 1) {
             sb_appendChar(&sb, '/');
         }
-
-        segment = segment->next;
     }
 
-    FILE *file = fopen(sb_build(sb).s, "r");
+    String filePath = sb_build(sb);
+    FILE *file = fopen(filePath.s, "r");
     if(file == null) return memnull;
 
     int fd = fileno(file);
@@ -202,31 +200,22 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
 
 Router router;
 
-bool routePathMatches(RoutePath *routePath, UriPath uriPathS) {
-    UriPathSegment *uriPath = uriPathS.segments;
+bool routePathMatches(RoutePath routePath, UriPath uriPath) {
+    usz i = 0;
+    for(i = 0; i < routePath.segments.len && i < uriPath.segments.len; i++) {
+        RoutePathSegment rs = dynar_index(RoutePathSegment, &routePath.segments, i);
+        String us = dynar_index(String, &uriPath.segments, i);
 
-    while(uriPath != null && routePath != null) {
-        // printf("URI: %s, ROUTE: %s\n", uriPath->segment.s, routePath->segment.s);
+        if(rs.isWildcard) return true;
+        if(rs.isMatch) continue;
 
-        if(routePath->isWildcard) return true; // all previous segments matched
-
-        if(!routePath->isMatch && !mem_eq(routePath->segment, uriPath->segment)) {
+        if(!mem_eq(rs.value, us)) {
             return false;
         }
-
-        uriPath = uriPath->next;
-        routePath = routePath->next;
     }
 
-    if(uriPath == null && routePath != null && routePath->isWildcard) {
-        return true;
-    }
-
-    if(routePath == null && (uriPath == null || (uriPath->segment.len == 0 && uriPath->next == null))) {
-        // last empty segment is ignored
-        return true;
-    }
-
+    if(routePath.segments.len == uriPath.segments.len) return true;
+    if(i < routePath.segments.len && dynar_index(RoutePathSegment, &routePath.segments, i).isWildcard) return true;
     return false;
 }
 
@@ -244,17 +233,13 @@ Route *getRoute(Router *r, RouteContext *context) {
     // off the matched part of the path (for routes
     // that end with /*), etc
 
-    RoutePath *routePath = route->path;
+    RoutePath routePath = route->path;
     UriPath relatedPath = context->relatedPath;
 
-    while(routePath != null) {
-        if(routePath->isWildcard) {
-            break;
-        }
-
-        routePath = routePath->next;
-        relatedPath.segments = relatedPath.segments->next;
-        relatedPath.segmentCount -= 1;
+    for(int i = 0; i < routePath.segments.len; i++) {
+        RoutePathSegment rs = dynar_index(RoutePathSegment, &routePath.segments, i);
+        if(rs.isWildcard) break;
+        dynar_remove(String, &relatedPath.segments, 0);
     }
 
     context->relatedPath = relatedPath;
@@ -264,10 +249,10 @@ Route *getRoute(Router *r, RouteContext *context) {
 
 void addRoute(Router *r, String host, String path, RouteCallback callback, Mem arg) {
     Stream s = mkStreamStr(path);
-    RoutePath *routePath = parseRoutePath(&s, r->alloc);
+    RoutePath routePath = parseRoutePath(&s, r->alloc);
 
     // TODO: signal error
-    if(routePath == &BAD_ROUTE_PATH) return;
+    if(isNone(routePath)) return;
 
     Route routeS = {
         .subdomain = host,
@@ -337,7 +322,6 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
 ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     Mem file = getFile(fileTree, context->relatedPath);
     if(isNull(file)) {
-        // printf("BAD FILE\n");
         return false;
     }
 
@@ -346,7 +330,6 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     pure(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
     cont(result) Placeholder_AddContentLength(context, file.len);
     cont(result) Placeholder_AddContent(context, file);
-    // printf("RESULT %d\n", result);
 
     return true;
 });
@@ -355,7 +338,6 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
 // it out later [ideally I'll make the backend easily
 // modifiable]), but I'm gonna do threads for now
 
-isz THREADS = 0;
 void *threadRoutine(void *_connection) {
     Connection connection = *(Connection *)_connection;
     Free(_connection);
@@ -364,11 +346,8 @@ void *threadRoutine(void *_connection) {
     stream_wbufferEnable(&s, 4096);
     stream_rbufferEnable(&s, 4096);
 
-    THREADS++;
-
     // TODO: kill the connection after a timeout
     while(true) {
-        printf("THREADS %d\n", THREADS);
         UseAlloc(mkAlloc_LinearExpandableA(ALLOC_GLOBAL), {
         // UseAlloc(*ALLOC_GLOBAL, {
             Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
@@ -378,7 +357,6 @@ void *threadRoutine(void *_connection) {
                 HttpError result = Http_parseHeaderField(&s, &headers);
                 bool crlf = Http_parseCRLF(&s);
 
-                // printf("ERROR: %d\n", result);
                 if(result != 0) {
                     ALLOC_POP();
                     goto cleanup;
@@ -403,7 +381,6 @@ void *threadRoutine(void *_connection) {
 
             Route *route = getRoute(&router, &context);
             if(route == null) {
-                // printf("invalid route\n");
                 ALLOC_POP();
                 goto cleanup;
             }
@@ -421,7 +398,6 @@ void *threadRoutine(void *_connection) {
     }
 
 cleanup:
-    THREADS--;
     Free(s.wbuffer.s);
     Free(s.rbuffer.s);
     close(connection.clientSock);
@@ -436,7 +412,7 @@ int main(int argc, char **argv) {
     int sock = result = socket(AF_INET, SOCK_STREAM, 0);
     printf("SOCKET: %d\n", result);
 
-    struct sockaddr_in addr = {
+    struct sockaddr_in addr = (struct sockaddr_in){
         .sin_family = AF_INET,
         .sin_port = htons(6969),
         .sin_addr = htonl(INADDR_ANY),
