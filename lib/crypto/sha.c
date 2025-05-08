@@ -9,6 +9,8 @@
 // Based on FIPS PUB 180-4
 // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
 
+// TODO: it's a good idea to make this work with Stream rather than Mem
+
 // TODO: iirc AMD64 has this natively, look into that
 #define Sha_rotl(x, n, w) (((x) << (n)) | ((x) >> ((w) - (n))))
 #define Sha_rotl32(x, n) (Sha_rotl(x, n, 32))

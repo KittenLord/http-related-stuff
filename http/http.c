@@ -317,7 +317,119 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
 }
 
 String Http_getDefaultReasonPhrase(u16 statusCode) {
-    return mkString("hello");
+    switch(statusCode) {
+        // ======================
+        // Informational 1xx
+        // ======================
+        case 100:
+            return mkString("Continue");
+        case 101:
+            return mkString("Switching Protocols");
+
+        // ======================
+        // Successful 2xx
+        // ======================
+        case 200:
+            return mkString("OK");
+        case 201:
+            return mkString("Created");
+        case 202:
+            return mkString("Accepted");
+        case 203:
+            return mkString("Non-Authoritative Information");
+        case 204:
+            return mkString("No Content");
+        case 205:
+            return mkString("Reset Content");
+        case 206:
+            return mkString("Partial Content");
+
+        // ======================
+        // Redirection 3xx
+        // ======================
+        case 300:
+            return mkString("Multiple Choices");
+        case 301:
+            return mkString("Moved Permanently");
+        case 302:
+            return mkString("Found");
+        case 303:
+            return mkString("See Other");
+        case 304:
+            return mkString("Not Modified");
+        // case 305:
+        //     return mkString("Use Proxy");
+        // case 306:
+        //     return mkString("Unused");
+        case 307:
+            return mkString("Temporary Redirect");
+        case 308:
+            return mkString("Permanent Redirect");
+
+        // ======================
+        // Client Error 4xx
+        // ======================
+        case 400:
+            return mkString("Bad Request");
+        case 401:
+            return mkString("Unauthorized");
+        // case 402:
+        //     return mkString("Payment Required");
+        case 403:
+            return mkString("Forbidden");
+        case 404:
+            return mkString("Not Found");
+        case 405:
+            return mkString("Method Not Allowed");
+        case 406:
+            return mkString("Not Acceptable");
+        case 407:
+            return mkString("Proxy Authentication Required");
+        case 408:
+            return mkString("Request Timeout");
+        case 409:
+            return mkString("Conflict");
+        case 410:
+            return mkString("Gone");
+        case 411:
+            return mkString("Length Required");
+        case 412:
+            return mkString("Precondition Failed");
+        case 413:
+            return mkString("Content Too Large");
+        case 414:
+            return mkString("URI Too Long");
+        case 415:
+            return mkString("Unsupported Media Type");
+        case 416:
+            return mkString("Range Not Satisfiable");
+        case 417:
+            return mkString("Expectation Failed");
+        case 418:
+            return mkString("I'm a teapot");
+        case 421:
+            return mkString("Misdirected Request");
+        case 422:
+            return mkString("Unprocessable Content");
+        case 426:
+            return mkString("Upgrade Required");
+
+        // ======================
+        // Server Error 5xx
+        // ======================
+        case 500:
+            return mkString("Internal Server Error");
+        case 501:
+            return mkString("Not Implemented");
+        case 502:
+            return mkString("Bad Gateway");
+        case 503:
+            return mkString("Service Unavailable");
+        case 504:
+            return mkString("Gateway Timeout");
+        case 505:
+            return mkString("HTTP Version Not Supported");
+    }
 }
 
 bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String reasonPhrase) {

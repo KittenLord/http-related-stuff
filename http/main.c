@@ -18,6 +18,17 @@
 // Reference command:
 // systemd-run --scope -p MemoryMax=5M --user ../bin/http-testing
 
+#define GET_NO_HEAD (1 << HTTP_GET)
+#define HEAD (1 << HTTP_HEAD)
+#define POST (1 << HTTP_POST)
+#define PUT (1 << HTTP_PUT)
+#define DELETE (1 << HTTP_DELETE)
+#define CONNECT (1 << HTTP_CONNECT)
+#define OPTIONS (1 << HTTP_OPTIONS)
+#define TRACE (1 << HTTP_TRACE)
+#define GET (GET_NO_HEAD | HEAD)
+typedef u64 HttpMethodMask;
+
 typedef struct {
     Stream *s;
 
@@ -43,6 +54,8 @@ typedef struct {
 
 typedef struct {
     bool error;
+
+    HttpMethodMask methodMask;
 
     String subdomain;
     RoutePath path;
@@ -156,20 +169,10 @@ FileTreeRouter mkFileTreeRouter(String spath) {
     return ftrouter;
 }
 
-Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
-    UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, ALLOC);
-    if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
+Mem getFile(String path) {
+    StringBuilder sb = mkStringBuilder();  
 
-    StringBuilder sb = mkStringBuilder();
-    dynar_foreach(String, &result.segments) {
-        sb_appendMem(&sb, loop.it);
-        if(loop.index != result.segments.len - 1) {
-            sb_appendChar(&sb, '/');
-        }
-    }
-
-    String filePath = sb_build(sb);
-    FILE *file = fopen(filePath.s, "r");
+    FILE *file = fopen(path.s, "r");
     if(file == null) return memnull;
 
     int fd = fileno(file);
@@ -184,6 +187,7 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     Stream resultStream = mkStreamSb(&sb);
     stream_wbufferEnableC(&resultStream, mkMem(wbuffer, 1024));
 
+    // TODO: make this actually do buffer-to-buffer memcpy
     MaybeChar c;
     while(isJust(c = stream_popChar(&fileStream))) {
         stream_writeChar(&resultStream, c.value);
@@ -193,6 +197,22 @@ Mem getFile(FileTreeRouter *ftrouter, UriPath subPath) {
     fclose(file);
 
     return sb_build(sb);
+}
+
+Mem treeGetFile(FileTreeRouter *ftrouter, UriPath subPath) {
+    UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, ALLOC);
+    if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
+
+    StringBuilder sb = mkStringBuilder();
+    dynar_foreach(String, &result.segments) {
+        sb_appendMem(&sb, loop.it);
+        if(loop.index != result.segments.len - 1) {
+            sb_appendChar(&sb, '/');
+        }
+    }
+
+    String filePath = sb_build(sb);
+    return getFile(filePath);
 }
 
 bool routePathMatches(RoutePath routePath, UriPath uriPath) {
@@ -214,13 +234,17 @@ bool routePathMatches(RoutePath routePath, UriPath uriPath) {
     return false;
 }
 
+bool routeMethodMatches(Route route, HttpMethod method) {
+    return ((route.methodMask) & (1 << method)) != 0;
+}
+
 Route getRoute(Router *r, RouteContext *context) {
     Route route = none(Route);
     dynar_foreach(Route, &r->routes) {
-        if(routePathMatches(loop.it.path, context->relatedPath)) {
-            route = loop.it;
-            break;
-        }
+        if(!routePathMatches(loop.it.path, context->relatedPath)) continue;
+        if(!routeMethodMatches(loop.it, context->method)) continue;
+        route = loop.it;
+        break;
     }
 
     if(isNone(route)) return route;
@@ -243,7 +267,7 @@ Route getRoute(Router *r, RouteContext *context) {
     return route;
 }
 
-void addRoute(Router *r, String host, String path, RouteCallback callback, Mem arg) {
+void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, RouteCallback callback, Mem arg) {
     Stream s = mkStreamStr(path);
     RoutePath routePath = parseRoutePath(&s, r->alloc);
 
@@ -251,6 +275,7 @@ void addRoute(Router *r, String host, String path, RouteCallback callback, Mem a
     if(isNone(routePath)) return;
 
     Route route = {
+        .methodMask = methodMask,
         .subdomain = host,
         .path = routePath,
         .callback = callback,
@@ -260,17 +285,6 @@ void addRoute(Router *r, String host, String path, RouteCallback callback, Mem a
     dynar_append(&r->routes, Route, route, _);
     return;
 }
-
-#define ROUTER_CALLBACK(name,  body) \
-bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body; } }
-
-#define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty* argname = (argty *)arg.s; { body; } }
-
-ROUTER_CALLBACK(testCallback, {
-    printf("helo\n");
-    return false;
-})
 
 bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, header));
@@ -300,22 +314,6 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
 
     return result;
 }
-
-
-ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
-    Mem file = getFile(fileTree, context->relatedPath);
-    if(isNull(file)) {
-        return false;
-    }
-
-    Http_writeStatusLine(context->s, 1, 1, 200, mkString("aboba"));
-
-    pure(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    cont(result) Placeholder_AddContentLength(context, file.len);
-    cont(result) Placeholder_AddContent(context, file);
-
-    return true;
-});
 
 // NOTE: Non-blocking might actually be better (will try
 // it out later [ideally I'll make the backend easily
@@ -362,7 +360,7 @@ void *threadRoutine(void *_connection) {
                 .headers = &headers,
                 .originalPath = requestLine.target.path,
 
-                // may be modified after getRoute()
+                // may be modified by getRoute()
                 .relatedPath = requestLine.target.path,
             });
 
@@ -392,6 +390,50 @@ cleanup:
     return null;
 }
 
+#define ROUTER_CALLBACK(name, body) \
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body; } }
+
+#define ROUTER_CALLBACK_STRING_ARG(name, arg, body) \
+bool name(RouteContext *context, String arg) { context = context; arg = arg; { body; } }
+
+#define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty* argname = (argty *)arg.s; { body; } }
+
+ROUTER_CALLBACK(testCallback, {
+    printf("helo\n");
+    return false;
+})
+
+ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
+    Mem file = treeGetFile(fileTree, context->relatedPath);
+    if(isNull(file)) {
+        return false;
+    }
+
+    Http_writeStatusLine(context->s, 1, 1, 200, memnull);
+
+    pure(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
+    cont(result) Placeholder_AddContentLength(context, file.len);
+    cont(result) Placeholder_AddContent(context, file);
+
+    return true;
+})
+
+ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
+    Mem file = getFile(filePath);
+    if(isNull(file)) {
+        return false;
+    }
+
+    Http_writeStatusLine(context->s, 1, 1, 200, memnull);
+
+    pure(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
+    cont(result) Placeholder_AddContentLength(context, file.len);
+    cont(result) Placeholder_AddContent(context, file);
+
+    return true;
+})
+
 int main(int argc, char **argv) {
     ALLOC_PUSH(mkAlloc_LinearExpandable());
 
@@ -402,7 +444,7 @@ int main(int argc, char **argv) {
     struct sockaddr_in addr = (struct sockaddr_in){
         .sin_family = AF_INET,
         .sin_port = htons(6969),
-        .sin_addr = htonl(INADDR_ANY),
+        .sin_addr = htonl(INADDR_ANY)
     };
     result = bind(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
     printf("BIND: %d\n", result);
@@ -419,10 +461,11 @@ int main(int argc, char **argv) {
     };
 
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"));
-    addRoute(&router, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(ftrouter));
-    addRoute(&router, mkString("host"), mkString("/*"), testCallback, memnull);
+    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(ftrouter));
+    addRoute(&router, GET, mkString("host"), mkString("/*"), testCallback, memnull);
 
-    while(true) {
+    int i = 0;
+    while(++i < 5) {
         struct sockaddr_in caddr = {0};
         socklen_t caddrLen = 0;
         int csock = accept(sock, (struct sockaddr *)&caddr, &caddrLen);
@@ -445,6 +488,8 @@ int main(int argc, char **argv) {
 
         printf("CONNECTION: %d %d\n", csock, thread);
     }
+
+    close(sock);
 
     ALLOC_POP();
     close(sock);

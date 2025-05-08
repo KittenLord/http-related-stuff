@@ -88,15 +88,15 @@ bool dynar_append_clone(Dynar(Mem) *dynar, Mem mem) {
 }
 
 #define dynar_foreach(ty, dynar) \
-    for(struct { usz index; ty it; ty *itptr } loop = { \
+    for(struct { usz index; ty it; ty *itptr; } loop = { \
             .index = 0, \
-            .it = ((dynar)->len > 0 ? dynar_index(ty, (dynar), 0) : loop.it), \
-            .itptr = ((dynar)->len > 0 ? &dynar_index(ty, (dynar), 0) : loop.itptr) \
+            .it = ((dynar)->len > 0 ? dynar_index(ty, (dynar), 0) : (ty){0}), \
+            .itptr = ((dynar)->len > 0 ? &dynar_index(ty, (dynar), 0) : null) \
         }; \
         loop.index < (dynar)->len; \
             ++loop.index, \
-            loop.it = (loop.index < (dynar)->len ? dynar_index(ty, (dynar), loop.index) : loop.it), \
-            loop.itptr = (loop.index < (dynar)->len ? &dynar_index(ty, (dynar), loop.index) : loop.itptr) \
+            loop.it = (loop.index < (dynar)->len ? dynar_index(ty, (dynar), loop.index) : (ty){0}), \
+            loop.itptr = (loop.index < (dynar)->len ? &dynar_index(ty, (dynar), loop.index) : null) \
         )
 
 #endif // __LIB_DYNAR
