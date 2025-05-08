@@ -10,6 +10,7 @@ typedef struct {
     Dynar(Map) map;
     Alloc *alloc;
 } Hashmap;
+#define HASHMAP(a, b) Hashmap
 
 #define mkHashmap(_alloc) ((Hashmap){ .alloc = (_alloc) })
 
@@ -17,7 +18,7 @@ typedef struct {
 // from here
 usz fnv64hash(Mem m) {
     usz h = 0xcbf29ce484222325ULL;
-    for(int i = 0; i < m.len; i++) {
+    for(usz i = 0; i < m.len; i++) {
         h += (h << 1) + (h << 4) + (h << 5) +
              (h << 7) + (h << 8) + (h << 40);
         h ^= (uint64_t)(m.s[i]);
@@ -28,9 +29,9 @@ usz fnv64hash(Mem m) {
 
 void hm_fix(Hashmap *hm) {
     if(isNull(hm->map.mem)) {
-        hm->map = mkDynarAC(32, hm->alloc);
+        hm->map = mkDynarCA(Map, 32, hm->alloc);
         for(int i = 0; i < 32; i++) {
-            dynar_append(&hm->map, Map, mkMapA(hm->alloc));
+            dynar_append(&hm->map, Map, mkMapA(hm->alloc), _);
         }
     }
 
@@ -42,20 +43,20 @@ usz hm_index(usz mod, Mem key) {
     return hash % mod;
 }
 
-void hm_set(Hashmap *hm, Mem key, Mem val) {
+Map *hm_getMap(Hashmap *hm, Mem key) {
     hm_fix(hm);
-    usz index = hm_index(hm->len, key);
+    usz index = hm_index(hm->map.len, key);
 
-    Map map = dynar_index(Map, hm->map, index);
-    map_set(&map, key, val);
+    Map *map = &dynar_index(Map, &hm->map, index);
+    return map;
+}
+
+void hm_set(Hashmap *hm, Mem key, Mem val) {
+    map_set(hm_getMap(hm, key), key, val);
 }
 
 Mem hm_get(Hashmap *hm, Mem key) {
-    hm_fix(hm);
-    usz index = hm_index(hm->len, key);
-
-    Map map = dynar_index(Map, hm->map, index);
-    return map_get(&map, key);
+    return map_get(hm_getMap(hm, key), key);
 }
 
 void hm_remove(Hashmap *hm, Mem key) {

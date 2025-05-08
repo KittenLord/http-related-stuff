@@ -1,6 +1,7 @@
 #ifndef __LIB_MAP
 #define __LIB_MAP
 
+#include <pthread.h>
 #include "types.h"
 #include "alloc.h"
 #include "mem.h"
@@ -13,7 +14,9 @@ typedef struct {
 typedef struct {
     Dynar(MapEntry) map;
     Alloc *alloc;
+    pthread_mutex_t lock;
 } Map;
+#define MAP(a, b) Map
 
 typedef struct {
     Map *map;
@@ -21,7 +24,18 @@ typedef struct {
 } MapIter;
 
 #define mkMap() mkMapA(ALLOC)
-#define mkMapA(a) ((Map){ .map = mkDynarA(MapEntry, a), .alloc = (a) })
+#define mkMapA(a) ((Map){ .map = mkDynarA(MapEntry, (a)), .alloc = (a), .lock = PTHREAD_MUTEX_INITIALIZER })
+
+int map_lock(Map *map) {
+    return pthread_mutex_lock(&map->lock);
+}
+
+int map_unlock(Map *map) {
+    return pthread_mutex_unlock(&map->lock);
+}
+
+#define map_block(map) for(bool block = map_lock((map)) != 0; !block; block = (map_unlock((map)), true))
+#define map_blockCond(map, b) for(bool block = ((b) && map_lock((map))), false; !block; block = true, ((b) && map_unlock((map))))
 
 bool map_iter_end(MapIter *iter) {
     return iter->index >= iter->map->map.len;

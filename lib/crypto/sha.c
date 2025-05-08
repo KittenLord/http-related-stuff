@@ -109,25 +109,25 @@ typedef struct {
         byte data[20];
         u32 words[5];
     };
-} Sha_Result160;
+} Hash160;
 
 typedef struct {
     union {
         byte data[32];
         u32 words[8];
     };
-} Sha_Result256;
+} Hash256;
 
 typedef struct {
     union {
         byte data[28];
         u32 words[7];
     };
-} Sha_Result224;
+} Hash224;
 
 typedef struct {
     byte data[64];
-} Sha_Result512;
+} Hash512;
 
 typedef struct {
     union {
@@ -173,12 +173,12 @@ Sha_Block512 Sha_getBlock512(Mem mem, u64 totalLen, bool *writtenOne) {
     return result;
 }
 
-Sha_Result160 Sha1(Mem mem) {
+Hash160 Sha1(Mem mem) {
     // TODO: check max size
 
     u64 len = mem.len;
 
-    Sha_Result160 result = {0};
+    Hash160 result = {0};
     result.words[0] = 0x67452301;
     result.words[1] = 0xefcdab89;
     result.words[2] = 0x98badcfe;
@@ -237,9 +237,9 @@ Sha_Result160 Sha1(Mem mem) {
     return result;
 }
 
-Sha_Result256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
+Hash256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
     u64 len = mem.len;
-    Sha_Result256 result = {0};
+    Hash256 result = {0};
 
     result.words[0] = initial[0];
     result.words[1] = initial[1];
@@ -315,7 +315,7 @@ Sha_Result256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
     return result;
 }
 
-Sha_Result256 Sha256(Mem mem) {
+Hash256 Sha256(Mem mem) {
     u32 initial[8] = {
         0x6a09e667,
         0xbb67ae85,
@@ -329,7 +329,7 @@ Sha_Result256 Sha256(Mem mem) {
     return Sha_Sha256Base(mem, initial);
 }
 
-Sha_Result224 Sha224(Mem mem) {
+Hash224 Sha224(Mem mem) {
     u32 initial[8] = {
         0xc1059ed8,
         0x367cd507,
@@ -340,8 +340,8 @@ Sha_Result224 Sha224(Mem mem) {
         0x64f98fa7,
         0xbefa4fa4,
     };
-    Sha_Result256 result256 = Sha_Sha256Base(mem, initial);
-    Sha_Result224 result = {0};
+    Hash256 result256 = Sha_Sha256Base(mem, initial);
+    Hash224 result = {0};
     result.words[0] = result256.words[0];
     result.words[1] = result256.words[1];
     result.words[2] = result256.words[2];
