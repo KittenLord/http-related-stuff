@@ -22,9 +22,6 @@
 // Reference command:
 // systemd-run --scope -p MemoryMax=5M --user ../bin/http-testing
 
-// TODO: the getFile/getFileData/etc API is horrible, but I
-// need some time to figure out how it should be instead
-
 #define GET_NO_HEAD     (1 << HTTP_GET)
 #define HEAD            (1 << HTTP_HEAD)
 #define GET             (GET_NO_HEAD | HEAD)
@@ -78,14 +75,24 @@ typedef struct {
 } Router;
 
 typedef struct {
-    Mem data;
+    bool error;
 
+    Mem data;
+    time_t modTime;
     Hash256 hash;
-    time_t modificationTime;
+    Mem gzip;
+    Mem zlib;
 } File;
 
 typedef struct {
     Alloc *alloc;
+
+    bool disableCaching;
+
+    bool doHash;
+    bool doGzip;
+    bool doZlib;
+
     HASHMAP(String, File) hm;
 } FileStorage;
 
@@ -102,7 +109,7 @@ typedef struct {
     Router *router;
 } Connection;
 
-time_t getFileModificationTime(String path) {
+time_t getFileModTime(String path) {
     struct stat s = {0};
     int result = stat(path.s, &s);
 
@@ -110,78 +117,87 @@ time_t getFileModificationTime(String path) {
     return s.st_mtime;
 }
 
-Mem getFileData(String path) {
+File getFile(String path, Alloc *alloc) {
     printf("GET FILE\n");
-    StringBuilder sb = mkStringBuilder();  
+    struct stat s = {0};
+    int result = stat(path.s, &s);
+    if(result != 0) return none(File);
 
     FILE *file = fopen(path.s, "r");
-    if(file == null) return memnull;
-
+    if(file == null) return none(File);
     int fd = fileno(file);
+    if(fd == -1) return none(File);
 
-    byte rbuffer[1024];
-    byte wbuffer[1024];
-
-    Stream fileStream = mkStreamFd(fd);
-    stream_rbufferEnableC(&fileStream, mkMem(rbuffer, 1024));
-
-    Stream resultStream = mkStreamSb(&sb);
-    stream_wbufferEnableC(&resultStream, mkMem(wbuffer, 1024));
-
-    // TODO: make this actually do buffer-to-buffer memcpy
-    MaybeChar c;
-    while(isJust(c = stream_popChar(&fileStream))) {
-        stream_writeChar(&resultStream, c.value);
+    Mem data = AllocateBytesC(alloc, s.st_size);
+    isz bytesRead = read(fd, data.s, data.len);
+    if(bytesRead != data.len) {
+        FreeC(alloc, data.s);
+        return none(File);
     }
-    
-    stream_writeFlush(&resultStream);
-    fclose(file);
 
-    return sb_build(sb);
-}
-
-File getFile(String path) {
-    Mem data = getFileData(path);
-    time_t modTime = getFileModificationTime(path);
-    if(isNull(data) || modTime == 0) return (File){0};
     return (File){
         .data = data,
-        .hash = Sha256(data),
-        .modificationTime = modTime,
+        .modTime = s.st_mtime,
     };
 }
 
-File storageGetFile(FileStorage *fs, String path) {
-    // TODO: getFile only reads data, does not return File
-    if(fs == null) return (File){ .data = getFileData(path) };
-    Map *map = hm_getMap(&fs->hm, path);
-    File file;
+// TODO: error checking
+void storageFillFile(File *file, FileStorage *storage) {
+    if(storage->doHash) {
+        file->hash = Sha256(file->data);
+    }
 
-    struct stat s;
-    if(stat(path.s, &s) != 0) return (File){0}; // does not exist probably
-    time_t modTime = s.st_mtime;
+    if(storage->doGzip) {
+        file->gzip = Gzip_compress(file->data, storage->alloc);
+    }
+
+    if(storage->doZlib) {
+        file->zlib = Zlib_compress(file->data, storage->alloc);
+    }
+}
+
+File getFileStorage(String path, FileStorage *storage) {
+    if(storage == null) {
+        return getFile(path, ALLOC);
+    }
+
+    if(storage->disableCaching) {
+        File file = getFile(path, ALLOC);
+        if(isNone(file)) return none(File);
+        storageFillFile(&file, storage);
+        return file;
+    }
+
+    // NOTE: if the file has been deleted, we don't look for it (maybe change?)
+    time_t modTime = getFileModTime(path);
+    if(modTime == 0) return none(File);
+
+    File file;
+    Map *map = hm_getMap(&storage->hm, path);
 
     // TODO: this does not copy memory from hashmap to user, thus the
     // hashmap can't free old versions of files - which is fine, if the
     // files modify rarely (or at all), but I'm not sure if this is good
     map_block(map) {
         File *supposedFile = (File *)map_get(map, path).s;
-        if(supposedFile != null && supposedFile->modificationTime == modTime) {
+        if(supposedFile != null && supposedFile->modTime == modTime) {
             file = *supposedFile;
             continue;
         }
 
-        file = getFile(path);
-        file.data = mem_clone(file.data, fs->alloc);
-        map_set(map, path, mkMem(&file, sizeof(File)));
+        file = getFile(path, storage->alloc);
+        if(isNone(file)) return none(File);
+        storageFillFile(&file, storage);
+
+        map_set(map, path, mkPointer(File, &file));
     }
 
     return file;
 }
 
-Mem treeGetFile(FileTreeRouter *ftrouter, UriPath subPath) {
+File getFileTree(FileTreeRouter *ftrouter, UriPath subPath) {
     UriPath result = Uri_pathMoveRelatively(ftrouter->basePath, subPath, ALLOC);
-    if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return memnull;
+    if(!Uri_pathHasPrefix(ftrouter->basePath, result)) return none(File);
 
     StringBuilder sb = mkStringBuilder();
     dynar_foreach(String, &result.segments) {
@@ -192,7 +208,7 @@ Mem treeGetFile(FileTreeRouter *ftrouter, UriPath subPath) {
     }
 
     String filePath = sb_build(sb);
-    return storageGetFile(ftrouter->storage, filePath).data;
+    return getFileStorage(filePath, ftrouter->storage);
 }
 
 MaybeString parseRoutePathMatch(Stream *s, Alloc *alloc) {
@@ -442,9 +458,9 @@ void *threadRoutine(void *_connection) {
             MapIter iter = map_iter(&headers);
             while(!map_iter_end(&iter)) {
                 MapEntry entry = map_iter_next(&iter);
-                // printf("HEADER NAME: %s\n", entry.key.s);
-                // printf("HEADER VALUE: %s\n", entry.val.s);
-                // printf("-----------\n");
+                printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
+                printf("HEADER VALUE: %.*s\n", entry.val.len, entry.val.s);
+                printf("-----------\n");
             }
         });
     }
@@ -472,29 +488,29 @@ ROUTER_CALLBACK(testCallback, {
 })
 
 ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
-    Mem file = treeGetFile(fileTree, context->relatedPath);
-    if(isNull(file)) {
+    File file = getFileTree(fileTree, context->relatedPath);
+    if(isNone(file)) {
         return false;
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
     cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    cont(result) Placeholder_AddContentLength(context, file.len);
-    cont(result) Placeholder_AddContent(context, file);
+    cont(result) Placeholder_AddContentLength(context, file.data.len);
+    cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
 })
 
 ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
-    Mem file = getFileData(filePath);
-    if(isNull(file)) {
+    File file = getFile(filePath, ALLOC);
+    if(isNone(file)) {
         return false;
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
     cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    cont(result) Placeholder_AddContentLength(context, file.len);
-    cont(result) Placeholder_AddContent(context, file);
+    cont(result) Placeholder_AddContentLength(context, file.data.len);
+    cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
 })
@@ -529,7 +545,7 @@ int main(int argc, char **argv) {
     hm_fix(&storage.hm);
 
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
-    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(ftrouter));
+    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(FileTreeRouter, &ftrouter));
     addRoute(&router, GET, mkString("host"), mkString("/*"), testCallback, memnull);
 
     int i = 0;
