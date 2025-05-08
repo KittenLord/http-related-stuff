@@ -22,15 +22,18 @@
 // Reference command:
 // systemd-run --scope -p MemoryMax=5M --user ../bin/http-testing
 
-#define GET_NO_HEAD (1 << HTTP_GET)
-#define HEAD (1 << HTTP_HEAD)
-#define POST (1 << HTTP_POST)
-#define PUT (1 << HTTP_PUT)
-#define DELETE (1 << HTTP_DELETE)
-#define CONNECT (1 << HTTP_CONNECT)
-#define OPTIONS (1 << HTTP_OPTIONS)
-#define TRACE (1 << HTTP_TRACE)
-#define GET (GET_NO_HEAD | HEAD)
+// TODO: the getFile/getFileData/etc API is horrible, but I
+// need some time to figure out how it should be instead
+
+#define GET_NO_HEAD     (1 << HTTP_GET)
+#define HEAD            (1 << HTTP_HEAD)
+#define GET             (GET_NO_HEAD | HEAD)
+#define POST            (1 << HTTP_POST)
+#define PUT             (1 << HTTP_PUT)
+#define DELETE          (1 << HTTP_DELETE)
+#define CONNECT         (1 << HTTP_CONNECT)
+#define OPTIONS         (1 << HTTP_OPTIONS)
+#define TRACE           (1 << HTTP_TRACE)
 typedef u64 HttpMethodMask;
 
 typedef struct {
@@ -76,6 +79,7 @@ typedef struct {
 
 typedef struct {
     Mem data;
+
     Hash256 hash;
     time_t modificationTime;
 } File;
@@ -98,7 +102,15 @@ typedef struct {
     Router *router;
 } Connection;
 
-Mem getFile(String path) {
+time_t getFileModificationTime(String path) {
+    struct stat s = {0};
+    int result = stat(path.s, &s);
+
+    if(result != 0) return 0;
+    return s.st_mtime;
+}
+
+Mem getFileData(String path) {
     printf("GET FILE\n");
     StringBuilder sb = mkStringBuilder();  
 
@@ -128,9 +140,20 @@ Mem getFile(String path) {
     return sb_build(sb);
 }
 
+File getFile(String path) {
+    Mem data = getFileData(path);
+    time_t modTime = getFileModificationTime(path);
+    if(isNull(data) || modTime == 0) return (File){0};
+    return (File){
+        .data = data,
+        .hash = Sha256(data),
+        .modificationTime = modTime,
+    };
+}
+
 File storageGetFile(FileStorage *fs, String path) {
     // TODO: getFile only reads data, does not return File
-    if(fs == null) return (File){ .data = getFile(path) };
+    if(fs == null) return (File){ .data = getFileData(path) };
     Map *map = hm_getMap(&fs->hm, path);
     File file;
 
@@ -142,19 +165,14 @@ File storageGetFile(FileStorage *fs, String path) {
     // hashmap can't free old versions of files - which is fine, if the
     // files modify rarely (or at all), but I'm not sure if this is good
     map_block(map) {
-        File *supposedFile = (void *)map_get(map, path).s;
+        File *supposedFile = (File *)map_get(map, path).s;
         if(supposedFile != null && supposedFile->modificationTime == modTime) {
             file = *supposedFile;
             continue;
         }
 
-        Mem data = getFile(path);
-        data = mem_clone(data, fs->alloc);
-        file = (File){
-            .data = data,
-            .hash = Sha256(data),
-            .modificationTime = modTime,
-        };
+        file = getFile(path);
+        file.data = mem_clone(file.data, fs->alloc);
         map_set(map, path, mkMem(&file, sizeof(File)));
     }
 
@@ -468,7 +486,7 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
 })
 
 ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
-    Mem file = getFile(filePath);
+    Mem file = getFileData(filePath);
     if(isNull(file)) {
         return false;
     }
@@ -539,7 +557,8 @@ int main(int argc, char **argv) {
         printf("CONNECTION: %d %d\n", csock, thread);
     }
 
-    close(sock);
+    int closeResult = close(sock);
+    printf("CLOSE %d\n", closeResult);
 
     ALLOC_POP();
     close(sock);
