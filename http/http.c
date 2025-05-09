@@ -14,6 +14,7 @@
 typedef enum {
     HTTPERR_SUCCESS, // naming is my passion
 
+    HTTPERR_INTERNAL_ERROR,
     HTTPERR_INVALID_METHOD,
     HTTPERR_INVALID_OPTIONS_TARGET,
     HTTPERR_REQUEST_LINE_ERROR,
@@ -21,6 +22,7 @@ typedef enum {
     HTTPERR_INVALID_FIELD_NAME,
     HTTPERR_INVALID_HEADER_FIELD,
     HTTPERR_INVALID_HEADER_FIELD_VALUE,
+    HTTPERR_MULTIPLE_HOST,
 } HttpError;
 
 typedef enum {
@@ -70,6 +72,23 @@ typedef struct {
     Http11RequestTarget target;
 } Http11RequestLine;
 
+// NOTE: Every header will have its string value on the same offset
+typedef struct {
+    String value;
+// TODO: Ideally the name of this struct should be a reserved header
+// that can't be used by its definition, but I couldn't find any like this
+} HttpH_Unknown;
+
+typedef struct {
+    String value;
+    Dynar(String) connectionOptions;
+} HttpH_Connection;
+
+typedef struct {
+    String value;
+    UriAuthority host; // NOTE: never has userinfo
+} HttpH_Host;
+
 bool Http_parseAny(Stream *s, String list) {
     MaybeChar c;
     bool success = false;
@@ -110,7 +129,7 @@ MaybeString Http_parseToken(Stream *s, Alloc *alloc, isz maxLen) {
         }
     }
 
-    if(sb.s.len == 0) { return none(MaybeString); }
+    if(sb.len == 0) { return none(MaybeString); }
 
     String token = sb_build(sb);
     return just(MaybeString, token);
@@ -279,6 +298,71 @@ MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
     return just(MaybeString, sb_build(sb));
 }
 
+// TODO: macros for generating header parsers (those that support lists to be
+// precise, since they have similar logic)
+
+HttpError Http_parseHeader_Connection(Map *map, String value, HttpH_Connection *already) {
+    Stream _s = mkStreamStr(value);
+    Stream *s = &_s;
+
+    StringBuilder sb = mkStringBuilder();
+    Stream _out = mkStreamSb(&sb);
+    Stream *out = &_out;
+
+    bool first = true;
+    if(already != null && already->value.len != 0) {
+        first = false;
+        pure(r) flattenStreamResultWrite(stream_write(out, already->value));
+        if(!r) return HTTPERR_INTERNAL_ERROR;
+    }
+
+    HttpH_Connection header = {0};
+    header.connectionOptions = already == null ? mkDynar(map->alloc) : already->connectionOptions;
+
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(s))) {
+        MaybeString connectionOption = Http_parseToken(s, map->alloc, 0);
+
+        // 0-length elements are skipped as per RFC-9110
+        if(isJust(connectionOption)) {
+            bool result = true;
+            dynar_append(&header.connectionOptions, String, connectionOption.value, result);
+            if(!first) {
+                cont(result) stream_writeChar(out, ',');
+                cont(result) stream_writeChar(out, ' ');
+            }
+            first = false;
+            cont(result) flattenStreamResultWrite(stream_write(out, connectionOption.value));
+            if(!result) return HTTPERR_INTERNAL_ERROR;
+        }
+
+        if(isNone(stream_peekChar(s))) break;
+
+        Http_parseWS(s);
+        bool r = Http_parseOne(s, ',');
+        if(!r) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+        Http_parseWS(s);
+    }
+
+    header.value = sb_build(sb);
+
+    map_set(map, mkString("connection"), memPointer(HttpH_Connection, &header));
+    return HTTPERR_SUCCESS;
+}
+
+HttpError Http_parseHeader_Host(Map *map, String value, HttpH_Host *already) {
+    if(already != null) return HTTPERR_MULTIPLE_HOST;
+    Stream s = mkStreamStr(value);
+    UriAuthority host = Uri_parseAuthorityWithoutUserinfo(&s, map->alloc);
+    if(isNone(host)) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+    HttpH_Host header = {
+        .value = value,
+        .host = host,
+    };
+    map_set(map, mkString("host"), memPointer(HttpH_Host, &header));
+    return HTTPERR_SUCCESS;
+}
+
 HttpError Http_parseHeaderField(Stream *s, Map *map) {
     Alloc *alloc = map->alloc;
     
@@ -300,20 +384,19 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     String fieldValue = mfieldValue.value;
 
     bool alreadyIs = map_has(map, fieldName);
-    if(!alreadyIs) {
-        map_set(map, fieldName, fieldValue);
+    HttpH_Unknown *already = memExtractPtr(HttpH_Unknown, map_get(map, fieldName));
+    if(false) {}
+    else if(mem_eq(fieldName, mkString("connection"))) {
+        return Http_parseHeader_Connection(map, fieldValue, (void *)already);
+    }
+    else if(mem_eq(fieldName, mkString("host"))) {
+        return Http_parseHeader_Host(map, fieldValue, (void *)already);
     }
     else {
-        String oldValue = map_get(map, fieldName);
-        StringBuilder newSb = mkStringBuilderCap(oldValue.len + 1 + fieldValue.len);
-        sb_appendMem(&newSb, oldValue);
-        sb_appendChar(&newSb, ',');
-        sb_appendMem(&newSb, fieldValue);
-
-        map_set(map, fieldName, sb_build(newSb));
+        HttpH_Unknown header = { .value = fieldValue };
+        map_setRepeat(map, fieldName, memPointer(HttpH_Unknown, &header));
+        return HTTPERR_SUCCESS;
     }
-
-    return HTTPERR_SUCCESS;
 }
 
 String Http_getDefaultReasonPhrase(u16 statusCode) {

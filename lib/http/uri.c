@@ -455,6 +455,46 @@ UriHost Uri_parseHost(Stream *s, Alloc *alloc) {
     return host;
 }
 
+UriAuthority Uri_parseAuthorityWithoutUserinfo(Stream *s, Alloc *alloc) {
+    UriAuthority authority = {0};
+
+    UriHost host = Uri_parseHost(s, alloc);
+    if(isNone(host)) return fail(UriAuthority, host.errmsg);
+    authority.host = host;
+
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c)) return authority;
+    if(isJust(c) && c.value != ':') return authority;
+    stream_popChar(s);
+
+    // TODO: parse port
+
+    authority.hasPort = true;
+    StringBuilder portsb = mkStringBuilderCap(16);
+    bool portOverflow = false;
+    u64 port = 0;
+
+    while(isJust(c = stream_peekChar(s)) && Uri_isDigit(c.value)) {
+        stream_popChar(s);
+
+        if(port >= u64decmax) {
+            portOverflow = true;
+        }
+        else {
+            port *= 10;
+            port += c.value - '0';
+        }
+
+        sb_appendChar(&portsb, c.value);
+    }
+
+    if(!portOverflow) authority.port = port;
+    authority.portOverflow = portOverflow;
+    authority.portString = sb_build(portsb);
+
+    return authority;
+}
+
 UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
     // NOTE: The URI spec is so good, that it seems to be impossible
     // to unambiguously detect the userinfo component, delimited by '@'.
@@ -502,41 +542,13 @@ UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
         s = &newStream;
     }
 
-    UriHost host = Uri_parseHost(s, alloc);
-    if(isNone(host)) return fail(UriAuthority, host.errmsg);
-    authority.host = host;
+    UriAuthority authorityAux = Uri_parseAuthorityWithoutUserinfo(s, alloc);
+    if(isNone(authorityAux)) return authorityAux;
 
-    c = stream_peekChar(s);
-    if(isNone(c)) return authority;
-    if(isJust(c) && c.value != ':') return authority;
-    stream_popChar(s);
+    authorityAux.hasUserInfo = authority.hasUserInfo;
+    authorityAux.userInfo = authority.userInfo;
 
-    // TODO: parse port
-
-    authority.hasPort = true;
-    StringBuilder portsb = mkStringBuilderCap(16);
-    bool portOverflow = false;
-    u64 port = 0;
-
-    while(isJust(c = stream_peekChar(s)) && Uri_isDigit(c.value)) {
-        stream_popChar(s);
-
-        if(port >= u64decmax) {
-            portOverflow = true;
-        }
-        else {
-            port *= 10;
-            port += c.value - '0';
-        }
-
-        sb_appendChar(&portsb, c.value);
-    }
-
-    if(!portOverflow) authority.port = port;
-    authority.portOverflow = portOverflow;
-    authority.portString = sb_build(portsb);
-
-    return authority;
+    return authorityAux;
 }
 
 UriHierarchyPart Uri_parseHier(Stream *s, Alloc *alloc) {

@@ -189,7 +189,7 @@ File getFileStorage(String path, FileStorage *storage) {
         if(isNone(file)) return none(File);
         storageFillFile(&file, storage);
 
-        map_set(map, path, mkPointer(File, &file));
+        map_set(map, path, memPointer(File, &file));
     }
 
     return file;
@@ -398,10 +398,6 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     return result;
 }
 
-// NOTE: Non-blocking might actually be better (will try
-// it out later [ideally I'll make the backend easily
-// modifiable]), but I'm gonna do threads for now
-
 void *threadRoutine(void *_connection) {
     Connection connection = *(Connection *)_connection;
     Free(_connection);
@@ -415,6 +411,7 @@ void *threadRoutine(void *_connection) {
         UseAlloc(mkAlloc_LinearExpandableA(ALLOC_GLOBAL), {
         // UseAlloc(*ALLOC_GLOBAL, {
             Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
+            printf("%.*s\n", s.rbuffer.len, s.rbuffer.s);
 
             Map headers = mkMap();
             while(!Http_parseCRLF(&s)) {
@@ -458,8 +455,11 @@ void *threadRoutine(void *_connection) {
             MapIter iter = map_iter(&headers);
             while(!map_iter_end(&iter)) {
                 MapEntry entry = map_iter_next(&iter);
+                HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
+                String value = header.value;
+
                 printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
-                printf("HEADER VALUE: %.*s\n", entry.val.len, entry.val.s);
+                printf("HEADER VALUE: %.*s\n", value.len, value.s);
                 printf("-----------\n");
             }
         });
@@ -545,7 +545,7 @@ int main(int argc, char **argv) {
     hm_fix(&storage.hm);
 
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
-    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, mkPointer(FileTreeRouter, &ftrouter));
+    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
     addRoute(&router, GET, mkString("host"), mkString("/*"), testCallback, memnull);
 
     int i = 0;

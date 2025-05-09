@@ -183,15 +183,14 @@ int main() {
             }
 
             UriPath path = uri.hierarchyPart.path;
-            UriPathSegment *current = path.segments;
 
             bool pathError = false;
-            while(current) {
+            dynar_foreach(String, &path.segments) {
                 sb_reset(&sbTemp);
                 stream_routeLine(&tests, &s, false);
                 sb_reset(&sbComp);
                 sb_appendString(&sbComp, mkString("Path: "));
-                sb_appendString(&sbComp, current->segment);
+                sb_appendString(&sbComp, loop.it);
                 if(!str_equal(sb_build(sbTemp), sb_build(sbComp))) {
                     printf("FAILED TEST: [%s]\n", sbTitle.s.s);
                     printf("    Test Uri: \"%s\"\n", sbUri.s.s);
@@ -202,8 +201,6 @@ int main() {
                     pathError = true;
                     break;
                 }
-
-                current = current->next;
             }
 
             if(pathError) continue;

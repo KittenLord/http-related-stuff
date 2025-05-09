@@ -4,7 +4,9 @@
 #include "types.h"
 #include "alloc.h"
 
-#define mkPointer(ty, p) mkMem((byte *)p, sizeof(ty))
+#define memPointer(ty, p) mkMem((byte *)p, sizeof(ty))
+#define memExtractPtr(ty, mem) ((ty *)((mem).s))
+#define memExtract(ty, mem) (*memExtractPtr(ty, mem))
 
 #define memIndex(m, i) mkMem((m).s + i, (i) >= (m).len ? 0 : (m).len - (i))
 #define memLimit(m, i) mkMem((m).s, (i) > (m).len ? (m).len : (i))

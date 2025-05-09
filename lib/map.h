@@ -51,6 +51,15 @@ MapIter map_iter(Map *map) {
     return (MapIter){ .map = map, .index = 0 };
 }
 
+// NOTE: Adds a new element even if this same key already exists.
+// map_get and others won't get to this, until ones before this
+// get removed. Used for iteration
+void map_setRepeat(Map *map, Mem key, Mem val) {
+    key = mem_clone(key, map->alloc);
+    val = mem_clone(val, map->alloc);
+    dynar_append(&map->map, MapEntry, ((MapEntry){ .key = key, .val = val }), _);
+}
+
 void map_set(Map *map, Mem key, Mem val) {
     usz i = 0;
     for(i = 0; i < map->map.len; i++) {
