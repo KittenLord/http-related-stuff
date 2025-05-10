@@ -1,5 +1,5 @@
 All
-- [ ] Handle Connection close/keep-alive
+- [x] Handle Connection close/keep-alive
 - [ ] Invalidate messages with extra CRLFs
 - [ ] Respond 400 if invalid request-line
 - [ ] Be able to parse chunked transfer coding

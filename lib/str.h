@@ -104,4 +104,18 @@ bool string_contains(byte c, String s) {
     return false;
 }
 
+void string_reverse(String s) {
+    if(s.len == 0) return;
+    usz lhs = 0;
+    usz rhs = s.len - 1;
+    while(lhs < rhs) {
+        byte temp = s.s[lhs];
+        s.s[lhs] = s.s[rhs];
+        s.s[rhs] = temp;
+
+        lhs += 1;
+        rhs -= 1;
+    }
+}
+
 #endif // __LIB_STR

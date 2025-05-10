@@ -41,6 +41,9 @@ typedef struct {
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
+
+    Router *mainRouter;
+    Router *lastRouter;
 } RouteContext;
 
 typedef bool (RouteCallback)(RouteContext *, Mem);
@@ -393,7 +396,7 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) stream_writeChar(context->s, HTTP_CR);
     cont(result) stream_writeChar(context->s, HTTP_LF);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
-    cont(result) flattenStreamResultWrite(stream_writeFlush(context->s));
+    // cont(result) flattenStreamResultWrite(stream_writeFlush(context->s));
 
     return result;
 }
@@ -406,12 +409,15 @@ void *threadRoutine(void *_connection) {
     stream_wbufferEnable(&s, 4096);
     stream_rbufferEnable(&s, 4096);
 
+    bool connectionPersists = false;
+
     // TODO: kill the connection after a timeout
-    while(true) {
+    do {
         UseAlloc(mkAlloc_LinearExpandableA(ALLOC_GLOBAL), {
         // UseAlloc(*ALLOC_GLOBAL, {
             Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
-            printf("%.*s\n", s.rbuffer.len, s.rbuffer.s);
+
+            // printf("%.*s\n", s.rbuffer.len, s.rbuffer.s);
 
             Map headers = mkMap();
             while(!Http_parseCRLF(&s)) {
@@ -423,6 +429,21 @@ void *threadRoutine(void *_connection) {
                     goto cleanup;
                 }
             }
+
+            HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
+            bool containsClose = connectionHeader != null
+                ? dynar_containsString(&connectionHeader->connectionOptions, mkString("close")) : false;
+            bool containsKeepalive = connectionHeader != null
+                ? dynar_containsString(&connectionHeader->connectionOptions, mkString("keep-alive")) : false;
+
+            if(containsClose)
+                { connectionPersists = false; }
+            // NOTE: this seems to be as per RFC-9112, but Firefox automatically starts
+            // a new connection even though I send version 1.1
+            else if(requestLine.version.value >= Http_getVersion(1, 1) || containsKeepalive)
+                { connectionPersists = true; }
+            else
+                { connectionPersists = false; }
 
             // TODO: we have the headers, including the Host, now
             // we reconstruct the target URI and parse it
@@ -442,6 +463,9 @@ void *threadRoutine(void *_connection) {
 
                 // may be modified by getRoute()
                 .relatedPath = requestLine.target.path,
+
+                .mainRouter = &connection.router,
+                .lastRouter = &connection.router,
             });
 
             Route route = getRoute(connection.router, &context);
@@ -450,7 +474,8 @@ void *threadRoutine(void *_connection) {
                 goto cleanup;
             }
 
-            route.callback(&context, route.argument);
+            bool result = route.callback(&context, route.argument);
+            stream_writeFlush(&s);
 
             MapIter iter = map_iter(&headers);
             while(!map_iter_end(&iter)) {
@@ -458,12 +483,12 @@ void *threadRoutine(void *_connection) {
                 HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
                 String value = header.value;
 
-                printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
-                printf("HEADER VALUE: %.*s\n", value.len, value.s);
-                printf("-----------\n");
+                // printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
+                // printf("HEADER VALUE: %.*s\n", value.len, value.s);
+                // printf("-----------\n");
             }
         });
-    }
+    } while(connectionPersists);
 
 cleanup:
     Free(s.wbuffer.s);
@@ -494,7 +519,7 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
-    cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
+    // cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
     cont(result) Placeholder_AddContentLength(context, file.data.len);
     cont(result) Placeholder_AddContent(context, file.data);
 
@@ -508,7 +533,7 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
-    cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
+    // cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
     cont(result) Placeholder_AddContentLength(context, file.data.len);
     cont(result) Placeholder_AddContent(context, file.data);
 
@@ -543,8 +568,8 @@ int main(int argc, char **argv) {
 
     FileStorage storage = { .alloc = ALLOC_GLOBAL, .hm = mkHashmap(ALLOC_GLOBAL) };
     hm_fix(&storage.hm);
-
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
+
     addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
     addRoute(&router, GET, mkString("host"), mkString("/*"), testCallback, memnull);
 

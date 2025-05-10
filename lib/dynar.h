@@ -99,4 +99,11 @@ bool dynar_append_clone(Dynar(Mem) *dynar, Mem mem) {
             loop.itptr = (loop.index < (dynar)->len ? &dynar_index(ty, (dynar), loop.index) : null) \
         )
 
+bool dynar_containsString(Dynar(String) *dynar, String value) {
+    dynar_foreach(String, dynar) {
+        if(mem_eq(loop.it, value)) return true;
+    }
+    return false;
+}
+
 #endif // __LIB_DYNAR

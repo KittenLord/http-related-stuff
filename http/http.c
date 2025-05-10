@@ -43,6 +43,7 @@ typedef enum {
 typedef struct {
     u8 major;
     u8 minor;
+    u16 value;
 } HttpVersion;
 
 typedef u8 Http11RequestTarget_Type;
@@ -88,6 +89,10 @@ typedef struct {
     String value;
     UriAuthority host; // NOTE: never has userinfo
 } HttpH_Host;
+
+u16 Http_getVersion(u8 a, u8 b) {
+    return ((u16)a << 8) | (u16)b;
+}
 
 bool Http_parseAny(Stream *s, String list) {
     MaybeChar c;
@@ -243,6 +248,8 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
             return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR);
         }
     }
+
+    version.value = Http_getVersion(version.major, version.minor);
 
     Http11RequestLine requestLine = {
         .method = method,
