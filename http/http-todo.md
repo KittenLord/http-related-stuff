@@ -1,0 +1,106 @@
+All
+- [ ] Handle Connection close/keep-alive
+- [ ] Invalidate messages with extra CRLFs
+- [ ] Respond 400 if invalid request-line
+- [ ] Be able to parse chunked transfer coding
+- [ ] Apply chunked if any Transfer-Encoding is used as the last one, only once
+- [ ] Not send Transfer-Encoding unless >=HTTP/1.1
+- [ ] Reject message if CR, LF, NUL within a field value
+- [ ] Ignore empty list value elements in header values
+- [ ] I think it's safe to say that 
+- [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
+- [ ] Parse 3 date formats
+- [ ] Figuring out presence of content (RFC-9110 6.4)
+- [ ] Add Date header (unless you don't have a clock lol)
+- [ ] Generate Content-Type
+- [ ] Send either Content-Length or Transfer-Encoding with content
+- [ ] Implement TRACE (9.3.8)
+- [ ] Q values no more 3 digits after dot (12.4.2)
+- [ ] Ensure that If-Range not generated without Range
+- [ ] Implement Range, optional (14)
+
+Server
+- [ ] Should ignore a single CRLF before request-line
+- [ ] Respond 400 if invalid or absent Host
+- [ ] Ignore Host if target URI absolute-form
+- [ ] Respond 400 to non HTTP messages
+- [ ] Respond 501 if request-line too long (> 8000)
+- [ ] Respond 400 if whitespace after header and before semicolon
+- [ ] Respond 411 if no Content-Length but has body
+- [ ] Not use transfer encodings and Content-Length in 1xx, 204, 2xx to CONNECT responses
+- [ ] Respond 501 if unsupported Transfer-Encoding
+- [ ] Reject if both Transfer-Encoding and Content-Length, or ignore the latter
+- [ ] Respond 4xx if chunked too long
+- [ ] Reject https requests via unsecured connection
+- [ ] Handle Upgrade header (101 and 426)
+- [ ] Send Last-Modified if possible
+- [ ] Send ETag if possible
+- [ ] Support GET and HEAD, can list allowed methods for a resource in Allow header
+- [ ] Respond 501 if unrecognized/unimplemented method
+- [ ] Respond 405 if recognized, but unsupported/unallowed
+- [ ] Disable unsafe query behavior for safe methods
+- [ ] Respond 201 and Location header if resources were created after a POST
+- [ ] Respond 303 if identical result of POST already exists elsewhere
+- [ ] Respond 201 if resource created after PUT
+- [ ] Respond 200 or 204 if resource modified after PUT
+- [ ] Respond 409 or 415 (or any other) if PUT representation is undesired
+- [ ] No validator fields after a PUT, unless PUT had absolutely no observable effect
+- [ ] Respond 3xx if wants PUT to be applied to another resource instead
+- [ ] Respond 202, 204, 200 to successful DELETE
+- [ ] Respond 400 if bad/empty port in CONNECT
+- [ ] Implement CONNECT/rely on internal proxies
+- [ ] Advertise any optional features via headers to a OPTIONS
+- [ ] Respond 417 to unrecognized expectation (10.1.1)
+- [ ] Ignore "100-continue" in HTTP/1.0 request (10.1.1)
+- [ ] Implement "100-continue" (10.1.1)
+- [ ] Generate Allow header (possibly empty) in a 405, and optionally in any other (10.2.1)
+- [ ] May generate Server header, not overly detailed (10.2.4)
+- [ ] Respond 401 and WWW-Authenticate if needs authorization (11)
+- [ ] Respond 300 or 406 if reactive negotiation (12.2)
+- [ ] Respond 406 (or ignore and send anyways) if no content satisfying sender's preference
+- [ ] Respond 415 with Accept-Encoding to unsupported Conding-Encoding/Content-Type in request (12.5.3)
+- [ ] Generate Vary if wants to (12.5.5)
+- [ ] Implement If-Match (13.1.1)
+- [ ] Implement If-None-Match (13.1.2)
+- [ ] Implement If-Modified-Since (13.1.3)
+- [ ] Implement If-Unmodified-Since (13.1.4)
+- [ ] Implement If-Range (13.1.5)
+- [ ] Ignore preconditionals for irrelevant requests (13.2.1)
+- [ ] Evaluate preconditionals in correct order (13.2.2)
+- [ ] Send Accept-Ranges (if any)
+- [ ] Not generate 1xx to HTTP/1.0 client (15.2)
+- [ ] Respond 204 if no content (15.3.5)
+- [ ] Generate Location in a 301, 302, 307, 308 response (15.4)
+- [ ] Provide representation in a 4xx response, excluding HEAD (15.5)
+- [ ] Respond 408 if waiting too long for the request to be fully sent (15.5.9)
+- [ ] Respond 413 if content too large
+- [ ] Respond 414 if URI too long (why not 501?) (15.5.15)
+- [ ] Respond 418 if you're a teapot (15.5.19)
+- [ ] Respond 422 if can't process content for reasons unrelated to 415 (15.5.21)
+- [ ] Respond 503 with Retry-After/Refuse connection if service unavailable (15.6.4)
+- [ ] Respond 505 if HTTP version is not supported (15.6.6)
+
+Client
+- [ ] Generate a Host header (as the very first one), same as in target URI
+- [ ] origin-form to server, absolute-form to proxy, authority-form for CONNECT, asterisk-form for OPTIONS
+- [ ] Keep track of the original request(s)
+- [ ] Distinguish between safe and unsafe methods when prompting user
+- [ ] No content in GET/HEAD/DELETE by default
+- [ ] Send port number in CONNECT
+- [ ] Send Content-Type if OPTIONS has content
+- [ ] Send "100-continue" expectation if comically large content (10.1.1)
+- [ ] Robotic client should send From header (10.1.2)
+- [ ] Send User-Agent, though not overly detailed (10.1.5)
+- [ ] Ignore unexpected 1xx responses (15.2)
+- [ ] Automatic redirection on 3xx with Location, with infinite loop prevention (15.4)
+
+Intermediary
+- [ ] Remove/replace Connection and fields mentioned in it, and ones known to be in Connection (7.6.1)
+- [ ] When receiving absolute-form, replace Host with target URIs authority
+- [ ] Send their own HTTP version, unless purposeful downgrade
+- [ ] If OPTIONS, replace empty path without a query with '\*'
+- [ ] Handle Max-Forwards for TRACE and OPTIONS
+- [ ] Handle Via header
+- [ ] When one side of a tunnel closes, try to send all remaining data to the yet open side
+- [ ] Be careful about opening a tunnel to whatever told
+- [ ] Respond 502 if inbound response is bad (15.6.3)
