@@ -7,10 +7,13 @@
 #include <http/uri.c>
 #include <stream.h>
 #include <map.h>
+#include <text.h>
 
 #define HTTP_CR 0x0D
 #define HTTP_LF 0x0A
 
+// NOTE: probably a good idea to split, like HttpHeaderError,
+// HttpReqLineError, etc
 typedef enum {
     HTTPERR_SUCCESS, // naming is my passion
 
@@ -519,6 +522,9 @@ String Http_getDefaultReasonPhrase(u16 statusCode) {
             return mkString("Gateway Timeout");
         case 505:
             return mkString("HTTP Version Not Supported");
+
+        default:
+            return mkString("dunno");
     }
 }
 
@@ -538,12 +544,7 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String 
 
     stream_writeChar(s, ' ');
 
-    u8 s0 = statusCode / 100;
-    u8 s1 = (statusCode % 100) / 10;
-    u8 s2 = (statusCode % 10);
-    stream_writeChar(s, s0 + '0');
-    stream_writeChar(s, s1 + '0');
-    stream_writeChar(s, s2 + '0');
+    decimalFromUNumber(s, statusCode);
 
     stream_writeChar(s, ' ');
 

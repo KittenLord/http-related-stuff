@@ -22,6 +22,19 @@
 // Reference command:
 // systemd-run --scope -p MemoryMax=5M --user ../bin/http-testing
 
+// NOTE: currently the only thing that might be bad (apart from
+// all the places where there is no error checking where it
+// should be) is a lot of excessive allocations where they're
+// just not needed. Each request has its own dedicated allocator,
+// so it's not like the functions returning memory need to care
+// about cloning memory received from that same allocator, but
+// at the same time making functions refer to the current
+// allocator is bad for composability (input might not always
+// be in the same allocator, obviously). Will think what the best
+// solution is (if there needs to be one, since I'm using linear
+// allocators the only thing that impactfully wastes work is
+// mem_copy)
+
 #define GET_NO_HEAD     (1 << HTTP_GET)
 #define HEAD            (1 << HTTP_HEAD)
 #define GET             (GET_NO_HEAD | HEAD)
@@ -33,19 +46,7 @@
 #define TRACE           (1 << HTTP_TRACE)
 typedef u64 HttpMethodMask;
 
-typedef struct {
-    Stream *s;
-
-    HttpVersion clientVersion;
-    HttpMethod method;
-    Map *headers;
-    UriPath originalPath;
-    UriPath relatedPath;
-
-    Router *mainRouter;
-    Router *lastRouter;
-} RouteContext;
-
+typedef struct RouteContext RouteContext;
 typedef bool (RouteCallback)(RouteContext *, Mem);
 
 typedef struct {
@@ -60,6 +61,13 @@ typedef struct {
 } RoutePath;
 
 typedef struct {
+    RouteCallback *callback;
+    Mem argument;
+} RouteHandler;
+#define mkHandlerArg(c, a) ((RouteHandler){ .callback = (c), .argument = (a) })
+#define mkHandler(a) mkHandlerArg((a), memnull)
+
+typedef struct {
     bool error;
 
     HttpMethodMask methodMask;
@@ -67,15 +75,29 @@ typedef struct {
     String subdomain;
     RoutePath path;
 
-    RouteCallback *callback;
-    Mem argument;
+    RouteHandler handler;
 } Route;
 
 typedef struct {
     Alloc *alloc;
 
     Dynar(Route) routes;
+
+    RouteHandler handler_generic400;
 } Router;
+
+struct RouteContext {
+    Stream *s;
+
+    HttpVersion clientVersion;
+    HttpMethod method;
+    Map *headers;
+    UriPath originalPath;
+    UriPath relatedPath;
+
+    Router *mainRouter;
+    Router *lastRouter;
+};
 
 typedef struct {
     bool error;
@@ -353,7 +375,7 @@ Route getRoute(Router *r, RouteContext *context) {
     return route;
 }
 
-void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, RouteCallback callback, Mem arg) {
+void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, RouteHandler handler) {
     Stream s = mkStreamStr(path);
     RoutePath routePath = parseRoutePath(&s, r->alloc);
 
@@ -364,8 +386,7 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
         .methodMask = methodMask,
         .subdomain = host,
         .path = routePath,
-        .callback = callback,
-        .argument = arg,
+        .handler = handler,
     };
 
     dynar_append(&r->routes, Route, route, _);
@@ -413,81 +434,85 @@ void *threadRoutine(void *_connection) {
 
     // TODO: kill the connection after a timeout
     do {
-        UseAlloc(mkAlloc_LinearExpandableA(ALLOC_GLOBAL), {
-        // UseAlloc(*ALLOC_GLOBAL, {
-            Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
+        ALLOC_PUSH(mkAlloc_LinearExpandableA(ALLOC_GLOBAL));
 
-            // printf("%.*s\n", s.rbuffer.len, s.rbuffer.s);
+        Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
 
-            Map headers = mkMap();
-            while(!Http_parseCRLF(&s)) {
-                HttpError result = Http_parseHeaderField(&s, &headers);
-                bool crlf = Http_parseCRLF(&s);
+        Map headers = mkMap();
+        while(!Http_parseCRLF(&s)) {
+            HttpError result = Http_parseHeaderField(&s, &headers);
+            bool crlf = Http_parseCRLF(&s);
 
-                if(result != 0) {
-                    ALLOC_POP();
-                    goto cleanup;
-                }
-            }
-
-            HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
-            bool containsClose = connectionHeader != null
-                ? dynar_containsString(&connectionHeader->connectionOptions, mkString("close")) : false;
-            bool containsKeepalive = connectionHeader != null
-                ? dynar_containsString(&connectionHeader->connectionOptions, mkString("keep-alive")) : false;
-
-            if(containsClose)
-                { connectionPersists = false; }
-            // NOTE: this seems to be as per RFC-9112, but Firefox automatically starts
-            // a new connection even though I send version 1.1
-            else if(requestLine.version.value >= Http_getVersion(1, 1) || containsKeepalive)
-                { connectionPersists = true; }
-            else
-                { connectionPersists = false; }
-
-            // TODO: we have the headers, including the Host, now
-            // we reconstruct the target URI and parse it
-
-            // TODO: with the target URI reconstructed, we can now,
-            // *gulp*, convert the path+query back into a string to
-            // feed to the router
-            // Should I extend the Uri/UriPath structs to include a
-            // string representation? I probably should
-
-            RouteContext context = ((RouteContext){
-                .s = &s,
-                .clientVersion = requestLine.version,
-                .method = requestLine.method,
-                .headers = &headers,
-                .originalPath = requestLine.target.path,
-
-                // may be modified by getRoute()
-                .relatedPath = requestLine.target.path,
-
-                .mainRouter = &connection.router,
-                .lastRouter = &connection.router,
-            });
-
-            Route route = getRoute(connection.router, &context);
-            if(isNone(route)) {
+            if(result != 0) {
                 ALLOC_POP();
                 goto cleanup;
             }
+        }
 
-            bool result = route.callback(&context, route.argument);
-            stream_writeFlush(&s);
+        HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
+        bool containsClose = connectionHeader != null
+            ? dynar_containsString(&connectionHeader->connectionOptions, mkString("close")) : false;
+        bool containsKeepalive = connectionHeader != null
+            ? dynar_containsString(&connectionHeader->connectionOptions, mkString("keep-alive")) : false;
 
-            MapIter iter = map_iter(&headers);
-            while(!map_iter_end(&iter)) {
-                MapEntry entry = map_iter_next(&iter);
-                HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
-                String value = header.value;
+        if(containsClose)
+            { connectionPersists = false; }
+        // NOTE: this seems to be as per RFC-9112, but Firefox automatically starts
+        // a new connection even though I send version 1.1
 
-                // printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
-                // printf("HEADER VALUE: %.*s\n", value.len, value.s);
-                // printf("-----------\n");
-            }
+        // NOTE: huh, now it doesnt?? did i test it wrong or what the hell is happening
+        else if(requestLine.version.value >= Http_getVersion(1, 1) || containsKeepalive)
+            { connectionPersists = true; }
+        else
+            { connectionPersists = false; }
+
+        // TODO: we have the headers, including the Host, now
+        // we reconstruct the target URI and parse it
+
+        // TODO: with the target URI reconstructed, we can now,
+        // *gulp*, convert the path+query back into a string to
+        // feed to the router
+        // Should I extend the Uri/UriPath structs to include a
+        // string representation? I probably should
+
+        // TODO: if an error of any kind happens, we need a
+        // trimmed down version of context that doesn't have
+        // stuff like path (since we might have encountered
+        // an error while parsing), etc
+        RouteContext context = ((RouteContext){
+            .s = &s,
+            .clientVersion = requestLine.version,
+            .method = requestLine.method,
+            .headers = &headers,
+
+            .originalPath = requestLine.target.path,
+            .relatedPath = requestLine.target.path,
+
+            .mainRouter = connection.router,
+            .lastRouter = connection.router,
         });
+
+        Route route = getRoute(connection.router, &context);
+        if(isNone(route)) {
+            ALLOC_POP();
+            goto cleanup;
+        }
+
+        bool result = route.handler.callback(&context, route.handler.argument);
+        stream_writeFlush(&s);
+
+        MapIter iter = map_iter(&headers);
+        while(!map_iter_end(&iter)) {
+            MapEntry entry = map_iter_next(&iter);
+            HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
+            String value = header.value;
+
+            // printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
+            // printf("HEADER VALUE: %.*s\n", value.len, value.s);
+            // printf("-----------\n");
+        }
+
+        ALLOC_POP();
     } while(connectionPersists);
 
 cleanup:
@@ -540,6 +565,13 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     return result;
 })
 
+ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
+    pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
+    cont(result) Placeholder_AddContentLength(context, data.len);
+    cont(result) Placeholder_AddContent(context, data);
+    return result;
+})
+
 int main(int argc, char **argv) {
     ALLOC_PUSH(mkAlloc_LinearExpandable());
 
@@ -558,20 +590,20 @@ int main(int argc, char **argv) {
     result = listen(sock, 128);
     printf("LISTEN: %d\n", result);
 
-    // pthread_mutex_t routerLock = PTHREAD_MUTEX_INITIALIZER;
     Router router = (Router){
         .alloc = ALLOC,
         .routes = mkDynar(Route),
-        // .routesDelete = null,
-        // .lock = &routerLock,
+
+        .handler_generic400 = mkHandlerArg(dataCallback, mkString("<body><h1>your request is very bad i dont like it</h1></body>")),
     };
 
     FileStorage storage = { .alloc = ALLOC_GLOBAL, .hm = mkHashmap(ALLOC_GLOBAL) };
     hm_fix(&storage.hm);
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
 
-    addRoute(&router, GET, mkString("host"), mkString("/files/*"), fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
-    addRoute(&router, GET, mkString("host"), mkString("/*"), testCallback, memnull);
+    addRoute(&router, GET, mkString("host"), mkString("/files/*"), mkHandlerArg(fileTreeCallback, memPointer(FileTreeRouter, &ftrouter)));
+    addRoute(&router, GET, mkString("host"), mkString("/test"), mkHandlerArg(dataCallback, mkString("<body><h1>Test!</h1></body>")));
+    addRoute(&router, GET, mkString("host"), mkString("/*"), mkHandler(testCallback));
 
     int i = 0;
     while(++i < 20) {
