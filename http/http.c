@@ -17,15 +17,16 @@
 typedef enum {
     HTTPERR_SUCCESS, // naming is my passion
 
-    HTTPERR_INTERNAL_ERROR,
-    HTTPERR_INVALID_METHOD,
-    HTTPERR_INVALID_OPTIONS_TARGET,
-    HTTPERR_REQUEST_LINE_ERROR,
-    HTTPERR_INVALID_REQUEST_TARGET_PATH,
-    HTTPERR_INVALID_FIELD_NAME,
-    HTTPERR_INVALID_HEADER_FIELD,
-    HTTPERR_INVALID_HEADER_FIELD_VALUE,
-    HTTPERR_MULTIPLE_HOST,
+    HTTPERR_INTERNAL_ERROR, // 500
+    HTTPERR_INVALID_METHOD, // 400
+    HTTPERR_UNKNOWN_METHOD, // 501
+    HTTPERR_INVALID_OPTIONS_TARGET, // 400
+    HTTPERR_REQUEST_LINE_ERROR, // 400
+    HTTPERR_INVALID_REQUEST_TARGET_PATH, // 400
+    HTTPERR_INVALID_FIELD_NAME, // 400
+    HTTPERR_INVALID_HEADER_FIELD, // 400
+    HTTPERR_INVALID_HEADER_FIELD_VALUE, // 400
+    HTTPERR_MULTIPLE_HOST, // 400 (merge with HTTPERR_INVALID_HEADER_FIELD_VALUE?)
 } HttpError;
 
 typedef enum {
@@ -48,6 +49,8 @@ typedef struct {
     u8 minor;
     u16 value;
 } HttpVersion;
+
+typedef u16 HttpStatusCode;
 
 typedef u8 Http11RequestTarget_Type;
 #define HTTP11_REQUEST_TARGET_ORIGIN 0
@@ -164,9 +167,10 @@ HttpMethod Http_parseMethod(Stream *s) {
     else if(mem_eq(mkString("CONNECT"), m)) { return HTTP_CONNECT; }
     else if(mem_eq(mkString("OPTIONS"), m)) { return HTTP_OPTIONS; }
     else if(mem_eq(mkString("TRACE"), m)) { return HTTP_TRACE; }
-    else { return HTTP_INVALID_METHOD; }
+    else { return HTTPERR_UNKNOWN_METHOD; }
 }
 
+// FIXME: this is going to kill everything if we encounter CR without LF
 bool Http_parseCRLF(Stream *s) {
     MaybeChar c = stream_peekChar(s);
     if(isNone(c) || c.value != HTTP_CR) return false;
@@ -409,7 +413,7 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     }
 }
 
-String Http_getDefaultReasonPhrase(u16 statusCode) {
+String Http_getDefaultReasonPhrase(HttpStatusCode statusCode) {
     switch(statusCode) {
         // ======================
         // Informational 1xx
@@ -528,7 +532,7 @@ String Http_getDefaultReasonPhrase(u16 statusCode) {
     }
 }
 
-bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, u16 statusCode, String reasonPhrase) {
+bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, HttpStatusCode statusCode, String reasonPhrase) {
     if(major > 9) return false;
     if(minor > 9) return false;
     if(statusCode < 100 || statusCode > 999) return false;

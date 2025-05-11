@@ -42,7 +42,7 @@ GLOBAL __thread usz   ALLOC_INDEX = 0;
 
 void ALLOC_POP() { 
     if(ALLOC_INDEX == 0) return;
-    ALLOC->kill(ALLOC);
+    if(ALLOC->kill != null) ALLOC->kill(ALLOC);
     ALLOC_INDEX--;
 }
 
@@ -50,6 +50,10 @@ Alloc *ALLOC_PUSH(Alloc alloc) {
     ALLOC_INDEX++;
     *ALLOC = alloc;
     return ALLOC;
+}
+
+void ALLOC_PUSH_DUMMY() {
+    ALLOC_PUSH((Alloc){0});
 }
 
 #define AllocateBytes(bytes) AllocateBytesC(ALLOC, (bytes))

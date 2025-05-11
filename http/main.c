@@ -66,6 +66,7 @@ typedef struct {
 } RouteHandler;
 #define mkHandlerArg(c, a) ((RouteHandler){ .callback = (c), .argument = (a) })
 #define mkHandler(a) mkHandlerArg((a), memnull)
+#define Handle(c, h) ((h).callback((c), (h).argument))
 
 typedef struct {
     bool error;
@@ -83,20 +84,26 @@ typedef struct {
 
     Dynar(Route) routes;
 
-    RouteHandler handler_generic400;
+    RouteHandler handler_routeNotFound;
+    RouteHandler handler_internalError;
+    RouteHandler handler_badRequest;
 } Router;
 
 struct RouteContext {
     Stream *s;
+    Router *mainRouter;
+    Router *lastRouter;
 
+    // Absent if success
+    HttpError error;
+    HttpStatusCode statusCode;
+
+    // Absent if error
     HttpVersion clientVersion;
     HttpMethod method;
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
-
-    Router *mainRouter;
-    Router *lastRouter;
 };
 
 typedef struct {
@@ -422,9 +429,17 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     return result;
 }
 
+bool Placeholder_NotFound(RouteContext *context) {
+    context->statusCode = 404;
+    return Handle(context, context->lastRouter->handler_routeNotFound);
+}
+
 void *threadRoutine(void *_connection) {
     Connection connection = *(Connection *)_connection;
     Free(_connection);
+
+    struct timeval timeout = { .tv_sec = 60 };
+    setsockopt(connection.clientSock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(struct timeval));
 
     Stream s = mkStreamFd(connection.clientSock);
     stream_wbufferEnable(&s, 4096);
@@ -432,21 +447,67 @@ void *threadRoutine(void *_connection) {
 
     bool connectionPersists = false;
 
-    // TODO: kill the connection after a timeout
+    // NOTE: to invert the ALLOC_POP usage, so that it can be put in cleanup
+    ALLOC_PUSH_DUMMY();
+
     do {
+        // Timeout handling
+        MaybeChar any = stream_peekChar(&s);
+        if(isNone(any)) {
+            goto cleanup;
+        }
+
+        ALLOC_POP(); // pop dummy
         ALLOC_PUSH(mkAlloc_LinearExpandableA(ALLOC_GLOBAL));
+
+        RouteContext context = ((RouteContext){
+            .s = &s,
+            .mainRouter = connection.router,
+            .lastRouter = connection.router,
+        });
 
         Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
 
+        if(isNone(requestLine)) {
+            context.error = requestLine.error;
+
+            if(isFail(requestLine, HTTPERR_INTERNAL_ERROR)) {
+                context.statusCode = 500;
+                Handle(&context, connection.router->handler_internalError);
+            }
+            else {
+                context.statusCode = 400;
+                Handle(&context, connection.router->handler_badRequest);
+            }
+
+            goto cleanup;
+        }
+
         Map headers = mkMap();
-        while(!Http_parseCRLF(&s)) {
+
+        // TODO: there should probably be a check that we're being trolled by infinite stream of headers
+        while(true) {
             HttpError result = Http_parseHeaderField(&s, &headers);
             bool crlf = Http_parseCRLF(&s);
+            if(!crlf && result == HTTPERR_SUCCESS) { result = HTTPERR_INVALID_HEADER_FIELD; }
 
-            if(result != 0) {
-                ALLOC_POP();
+            if(result != HTTPERR_SUCCESS) {
+                context.error = requestLine.error;
+
+                if(result == HTTPERR_INTERNAL_ERROR) {
+                    context.statusCode = 500;
+                    Handle(&context, connection.router->handler_internalError);
+                }
+                else {
+                    context.statusCode = 400;
+                    Handle(&context, connection.router->handler_badRequest);
+                }
+
                 goto cleanup;
             }
+
+            bool finalCrlf = Http_parseCRLF(&s);
+            if(finalCrlf) break;
         }
 
         HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
@@ -475,11 +536,7 @@ void *threadRoutine(void *_connection) {
         // Should I extend the Uri/UriPath structs to include a
         // string representation? I probably should
 
-        // TODO: if an error of any kind happens, we need a
-        // trimmed down version of context that doesn't have
-        // stuff like path (since we might have encountered
-        // an error while parsing), etc
-        RouteContext context = ((RouteContext){
+        context = ((RouteContext){
             .s = &s,
             .clientVersion = requestLine.version,
             .method = requestLine.method,
@@ -494,11 +551,16 @@ void *threadRoutine(void *_connection) {
 
         Route route = getRoute(connection.router, &context);
         if(isNone(route)) {
-            ALLOC_POP();
+            context.statusCode = 404;
+            Handle(&context, connection.router->handler_routeNotFound);
             goto cleanup;
         }
 
-        bool result = route.handler.callback(&context, route.handler.argument);
+        bool result = Handle(&context, route.handler);
+        if(!result) {
+            goto cleanup;
+        }
+
         stream_writeFlush(&s);
 
         MapIter iter = map_iter(&headers);
@@ -512,10 +574,12 @@ void *threadRoutine(void *_connection) {
             // printf("-----------\n");
         }
 
-        ALLOC_POP();
     } while(connectionPersists);
 
 cleanup:
+    printf("END CONNECTION\n");
+    stream_writeFlush(&s);
+    ALLOC_POP();
     Free(s.wbuffer.s);
     Free(s.rbuffer.s);
     close(connection.clientSock);
@@ -540,7 +604,7 @@ ROUTER_CALLBACK(testCallback, {
 ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     File file = getFileTree(fileTree, context->relatedPath);
     if(isNone(file)) {
-        return false;
+        return Placeholder_NotFound(context);
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
@@ -554,7 +618,7 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
 ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     File file = getFile(filePath, ALLOC);
     if(isNone(file)) {
-        return false;
+        return Placeholder_NotFound(context);
     }
 
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
@@ -569,6 +633,31 @@ ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
     pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
     cont(result) Placeholder_AddContentLength(context, data.len);
     cont(result) Placeholder_AddContent(context, data);
+    return result;
+})
+
+ROUTER_CALLBACK(genericErrorCallback, {
+    HttpStatusCode statusCode = context->statusCode;
+    String content = mkString("<body><h1>Something very bad</h1></body>");
+
+    switch(statusCode) {
+        case 400:
+            content = mkString("<html><body><h1>400 Bad Request</h1><h2>Your request is very bad (uncool and bad and not cool!) >:(</h2></body></html>");
+            break;
+        case 404:
+            content = mkString("<html><body><h1>404 Not Found</h1><h2>Sorry we don't have this here</h2></body></html>");
+            break;
+        case 500:
+            content = mkString("<html><body><h1>500 Internal Server Error</h1><h2>The server has commitet ded (shouldn't have written it in C)</h2></body></html>");
+            break;
+        case 501:
+            content = mkString("<html><body><h1>501 Not Implemented</h1><h2>This very cool feature is not implemented here :(</h2></body></html>");
+            break;
+    }
+
+    pure(result) Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
+    cont(result) Placeholder_AddContentLength(context, content.len);
+    cont(result) Placeholder_AddContent(context, content);
     return result;
 })
 
@@ -594,7 +683,9 @@ int main(int argc, char **argv) {
         .alloc = ALLOC,
         .routes = mkDynar(Route),
 
-        .handler_generic400 = mkHandlerArg(dataCallback, mkString("<body><h1>your request is very bad i dont like it</h1></body>")),
+        .handler_routeNotFound  = mkHandler(genericErrorCallback),
+        .handler_internalError  = mkHandler(genericErrorCallback),
+        .handler_badRequest     = mkHandler(genericErrorCallback),
     };
 
     FileStorage storage = { .alloc = ALLOC_GLOBAL, .hm = mkHashmap(ALLOC_GLOBAL) };
@@ -603,7 +694,7 @@ int main(int argc, char **argv) {
 
     addRoute(&router, GET, mkString("host"), mkString("/files/*"), mkHandlerArg(fileTreeCallback, memPointer(FileTreeRouter, &ftrouter)));
     addRoute(&router, GET, mkString("host"), mkString("/test"), mkHandlerArg(dataCallback, mkString("<body><h1>Test!</h1></body>")));
-    addRoute(&router, GET, mkString("host"), mkString("/*"), mkHandler(testCallback));
+    // addRoute(&router, GET, mkString("host"), mkString("/*"), mkHandler(testCallback));
 
     int i = 0;
     while(++i < 20) {
