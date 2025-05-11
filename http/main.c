@@ -87,6 +87,7 @@ typedef struct {
     RouteHandler handler_routeNotFound;
     RouteHandler handler_internalError;
     RouteHandler handler_badRequest;
+    RouteHandler handler_notImplemented;
 } Router;
 
 struct RouteContext {
@@ -424,7 +425,6 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) stream_writeChar(context->s, HTTP_CR);
     cont(result) stream_writeChar(context->s, HTTP_LF);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
-    // cont(result) flattenStreamResultWrite(stream_writeFlush(context->s));
 
     return result;
 }
@@ -438,6 +438,7 @@ void *threadRoutine(void *_connection) {
     Connection connection = *(Connection *)_connection;
     Free(_connection);
 
+    // https://stackoverflow.com/questions/2876024/linux-is-there-a-read-or-recv-from-socket-with-timeout
     struct timeval timeout = { .tv_sec = 60 };
     setsockopt(connection.clientSock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(struct timeval));
 
@@ -474,6 +475,10 @@ void *threadRoutine(void *_connection) {
             if(isFail(requestLine, HTTPERR_INTERNAL_ERROR)) {
                 context.statusCode = 500;
                 Handle(&context, connection.router->handler_internalError);
+            }
+            else if(isFail(requestLine, HTTPERR_UNKNOWN_METHOD)) {
+                context.statusCode = 501;
+                Handle(&context, connection.router->handler_notImplemented);
             }
             else {
                 context.statusCode = 400;
@@ -686,6 +691,7 @@ int main(int argc, char **argv) {
         .handler_routeNotFound  = mkHandler(genericErrorCallback),
         .handler_internalError  = mkHandler(genericErrorCallback),
         .handler_badRequest     = mkHandler(genericErrorCallback),
+        .handler_notImplemented = mkHandler(genericErrorCallback),
     };
 
     FileStorage storage = { .alloc = ALLOC_GLOBAL, .hm = mkHashmap(ALLOC_GLOBAL) };

@@ -1,13 +1,12 @@
 All
 - [x] Handle Connection close/keep-alive
 - [ ] Invalidate messages with extra CRLFs
-- [ ] Respond 400 if invalid request-line
+- [x] Respond 400 if invalid request-line
 - [ ] Be able to parse chunked transfer coding
 - [ ] Apply chunked if any Transfer-Encoding is used as the last one, only once
 - [ ] Not send Transfer-Encoding unless >=HTTP/1.1
 - [ ] Reject message if CR, LF, NUL within a field value
-- [ ] Ignore empty list value elements in header values
-- [ ] I think it's safe to say that 
+- [x] Ignore empty list value elements in header values
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
 - [ ] Parse 3 date formats
 - [ ] Figuring out presence of content (RFC-9110 6.4)
@@ -23,7 +22,7 @@ Server
 - [ ] Should ignore a single CRLF before request-line
 - [ ] Respond 400 if invalid or absent Host
 - [ ] Ignore Host if target URI absolute-form
-- [ ] Respond 400 to non HTTP messages
+- [x] Respond 400 to non HTTP messages
 - [ ] Respond 501 if request-line too long (> 8000)
 - [ ] Respond 400 if whitespace after header and before semicolon
 - [ ] Respond 411 if no Content-Length but has body
@@ -36,8 +35,8 @@ Server
 - [ ] Send Last-Modified if possible
 - [ ] Send ETag if possible
 - [ ] Support GET and HEAD, can list allowed methods for a resource in Allow header
-- [ ] Respond 501 if unrecognized/unimplemented method
-- [ ] Respond 405 if recognized, but unsupported/unallowed
+- [x] Respond 501 if unrecognized/unimplemented method
+- [ ] Respond 405 if recognized method, but unsupported/unallowed
 - [ ] Disable unsafe query behavior for safe methods
 - [ ] Respond 201 and Location header if resources were created after a POST
 - [ ] Respond 303 if identical result of POST already exists elsewhere
