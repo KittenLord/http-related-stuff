@@ -18,16 +18,17 @@
 typedef enum {
     HTTPERR_SUCCESS, // naming is my passion
 
-    HTTPERR_INTERNAL_ERROR, // 500
-    HTTPERR_INVALID_METHOD, // 400
-    HTTPERR_UNKNOWN_METHOD, // 501
-    HTTPERR_INVALID_OPTIONS_TARGET, // 400
-    HTTPERR_REQUEST_LINE_ERROR, // 400
-    HTTPERR_INVALID_REQUEST_TARGET_PATH, // 400
-    HTTPERR_INVALID_FIELD_NAME, // 400
-    HTTPERR_INVALID_HEADER_FIELD, // 400
-    HTTPERR_INVALID_HEADER_FIELD_VALUE, // 400
-    HTTPERR_MULTIPLE_HOST, // 400 (merge with HTTPERR_INVALID_HEADER_FIELD_VALUE?)
+    HTTPERR_INTERNAL_ERROR,
+    HTTPERR_INVALID_METHOD,
+    HTTPERR_UNKNOWN_METHOD,
+    HTTPERR_INVALID_OPTIONS_TARGET,
+    HTTPERR_REQUEST_LINE_ERROR,
+    HTTPERR_INVALID_REQUEST_TARGET_PATH,
+    HTTPERR_INVALID_FIELD_NAME,
+    HTTPERR_INVALID_HEADER_FIELD,
+    HTTPERR_INVALID_HEADER_FIELD_VALUE,
+    HTTPERR_BAD_HOST,
+    HTTPERR_REQUEST_TARGET_TOO_LONG,
 } HttpError;
 
 typedef enum {
@@ -231,21 +232,21 @@ bool Http_parseCRLF(Stream *s) {
 }
 
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
-    // NOTE: As recommended by RFC9112
-    // stream_rlimitEnable(s, 8000);
-
     HttpMethod method = Http_parseMethod(s);
     if(method == HTTP_INVALID_METHOD) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
 
     bool result;
 
     result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
+    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
 
     MaybeChar c = stream_peekChar(s);
     if(isNone(c)) {
         return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR);
     }
+
+    // TODO: should we limit the request-line + headers instead? would solve a lot of problems
+    stream_rlimitEnable(s, 8000);
 
     Http11RequestTarget target = {0};
 
@@ -264,6 +265,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
         // parse uri path
         stream_popChar(s);
         UriPath path = Uri_parsePathRootlessOrEmpty(s, alloc);
+        if(s->rlimit == 0) return fail(Http11RequestLine, HTTPERR_REQUEST_TARGET_TOO_LONG);
         if(isNone(path)) { return fail(Http11RequestLine, HTTPERR_INVALID_REQUEST_TARGET_PATH); }
         target.path = path;
 
@@ -272,6 +274,8 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
             stream_popChar(s);
             target.hasQuery = true;
             MaybeString query = Uri_parseQuery(s, alloc);
+
+            if(s->rlimit == 0) return fail(Http11RequestLine, HTTPERR_REQUEST_TARGET_TOO_LONG);
             if(isNone(query)) { return fail(Http11RequestLine, HTTPERR_INVALID_REQUEST_TARGET_PATH); }
             target.query = query.value;
         }
@@ -280,8 +284,10 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
         // TODO: parse either uri authority, or an absolute-URI
     }
 
+    stream_rlimitDisable(s);
+
     result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
+    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
 
     HttpVersion version = {0};
     bool majorSet = false;
@@ -409,7 +415,7 @@ HttpError Http_parseHeader_Connection(Map *map, String value, HttpH_Connection *
 }
 
 HttpError Http_parseHeader_Host(Map *map, String value, HttpH_Host *already) {
-    if(already != null) return HTTPERR_MULTIPLE_HOST;
+    if(already != null) return HTTPERR_BAD_HOST;
     Stream s = mkStreamStr(value);
     UriAuthority host = Uri_parseAuthorityWithoutUserinfo(&s, map->alloc);
     if(isNone(host)) return HTTPERR_INVALID_HEADER_FIELD_VALUE;

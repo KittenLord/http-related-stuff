@@ -402,9 +402,7 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
 }
 
 bool Placeholder_AddDate(RouteContext *context) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date")));
-    cont(result) stream_writeChar(context->s, ':');
-    cont(result) stream_writeChar(context->s, ' ');
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date: ")));
     cont(result) Http_writeDate(context->s);
     cont(result) stream_writeChar(context->s, HTTP_CR);
     cont(result) stream_writeChar(context->s, HTTP_LF);
@@ -485,9 +483,10 @@ void *threadRoutine(void *_connection) {
         });
 
         Http11RequestLine requestLine = Http_parseHttp11RequestLine(&s, ALLOC);
+        stream_rlimitDisable(&s);
 
         if(isNone(requestLine)) {
-            context.error = requestLine.error;
+            context.error = requestLine.errmsg;
 
             if(isFail(requestLine, HTTPERR_INTERNAL_ERROR)) {
                 context.statusCode = 500;
@@ -496,6 +495,11 @@ void *threadRoutine(void *_connection) {
             else if(isFail(requestLine, HTTPERR_UNKNOWN_METHOD)) {
                 context.statusCode = 501;
                 Handle(&context, connection.router->handler_notImplemented);
+            }
+            else if(isFail(requestLine, HTTPERR_REQUEST_TARGET_TOO_LONG)) {
+                // NOTE: does this need a separate callback?
+                context.statusCode = 414;
+                Handle(&context, connection.router->handler_badRequest);
             }
             else {
                 context.statusCode = 400;
@@ -507,7 +511,7 @@ void *threadRoutine(void *_connection) {
 
         Map headers = mkMap();
 
-        // TODO: there should probably be a check that we're being trolled by infinite stream of headers
+        // TODO: there should probably be a check that we're being trolled by an infinite stream of headers
         while(true) {
             HttpError result = Http_parseHeaderField(&s, &headers);
             bool crlf = Http_parseCRLF(&s);
@@ -530,6 +534,13 @@ void *threadRoutine(void *_connection) {
 
             bool finalCrlf = Http_parseCRLF(&s);
             if(finalCrlf) break;
+        }
+
+        if(!map_has(&headers, mkString("host"))) {
+            context.statusCode = 400;
+            context.error = HTTPERR_BAD_HOST;
+            Handle(&context, connection.router->handler_badRequest);
+            goto cleanup;
         }
 
         HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
@@ -575,15 +586,19 @@ void *threadRoutine(void *_connection) {
         if(isNone(route)) {
             context.statusCode = 404;
             Handle(&context, connection.router->handler_routeNotFound);
-            goto cleanup;
         }
 
         bool result = Handle(&context, route.handler);
         if(!result) {
+            context.statusCode = 500;
+            Handle(&context, connection.router->handler_internalError);
             goto cleanup;
         }
 
-        stream_writeFlush(&s);
+        result = flattenStreamResultWrite(stream_writeFlush(&s));
+        if(!result) {
+            goto cleanup;
+        }
 
         MapIter iter = map_iter(&headers);
         while(!map_iter_end(&iter)) {
@@ -666,6 +681,9 @@ ROUTER_CALLBACK(genericErrorCallback, {
             break;
         case 404:
             content = mkString("<html><body><h1>404 Not Found</h1><h2>Sorry we don't have this here</h2></body></html>");
+            break;
+        case 414:
+            content = mkString("<html><body><h1>414 URI Too Long</h1><h2>your URI is too long and girthy</h2></body></html>");
             break;
         case 500:
             content = mkString("<html><body><h1>500 Internal Server Error</h1><h2>The server has commitet ded (shouldn't have written it in C)</h2></body></html>");

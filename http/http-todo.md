@@ -19,11 +19,10 @@ All
 - [ ] Implement Range, optional (14)
 
 Server
-- [ ] Should ignore a single CRLF before request-line
-- [ ] Respond 400 if invalid or absent Host
+- [ ] Should ignore a single CRLF before request-line (is this a good idea?)
+- [x] Respond 400 if invalid or absent Host
 - [ ] Ignore Host if target URI absolute-form
 - [x] Respond 400 to non HTTP messages
-- [ ] Respond 501 if request-line too long (> 8000)
 - [ ] Respond 400 if whitespace after header and before semicolon
 - [ ] Respond 411 if no Content-Length but has body
 - [ ] Not use transfer encodings and Content-Length in 1xx, 204, 2xx to CONNECT responses
@@ -73,7 +72,7 @@ Server
 - [ ] Provide representation in a 4xx response, excluding HEAD (15.5)
 - [ ] Respond 408 if waiting too long for the request to be fully sent (15.5.9)
 - [ ] Respond 413 if content too large
-- [ ] Respond 414 if URI too long (why not 501?) (15.5.15)
+- [x] Respond 414 if URI too long (15.5.15)
 - [ ] Respond 418 if you're a teapot (15.5.19)
 - [ ] Respond 422 if can't process content for reasons unrelated to 415 (15.5.21)
 - [ ] Respond 503 with Retry-After/Refuse connection if service unavailable (15.6.4)

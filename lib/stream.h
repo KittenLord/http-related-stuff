@@ -128,9 +128,19 @@ void stream_rlimitEnable(Stream *s, isz limit) {
     s->rlimit = limit;
 }
 
+void stream_rlimitDisable(Stream *s) {
+    s->rlimitEnabled = false;
+    s->rlimit = 0;
+}
+
 void stream_wlimitEnable(Stream *s, isz limit) {
     s->rlimitEnabled = true;
     s->wlimit = limit;
+}
+
+void stream_wlimitDisable(Stream *s) {
+    s->wlimitEnabled = false;
+    s->wlimit = 0;
 }
 
 ResultWrite stream_writeRaw(Stream *s, Mem mem) {
