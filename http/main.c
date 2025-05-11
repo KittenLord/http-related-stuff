@@ -401,6 +401,17 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
     return;
 }
 
+bool Placeholder_AddDate(RouteContext *context) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date")));
+    cont(result) stream_writeChar(context->s, ':');
+    cont(result) stream_writeChar(context->s, ' ');
+    cont(result) Http_writeDate(context->s);
+    cont(result) stream_writeChar(context->s, HTTP_CR);
+    cont(result) stream_writeChar(context->s, HTTP_LF);
+
+    return result;
+}
+
 bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, header));
     cont(result) stream_writeChar(context->s, ':');
@@ -422,7 +433,9 @@ bool Placeholder_AddContentLength(RouteContext *context, u64 length) {
 }
 
 bool Placeholder_AddContent(RouteContext *context, Mem content) {
-    pure(result) stream_writeChar(context->s, HTTP_CR);
+    pure(result) Placeholder_AddContentLength(context, content.len);
+
+    cont(result) stream_writeChar(context->s, HTTP_CR);
     cont(result) stream_writeChar(context->s, HTTP_LF);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
 
@@ -432,6 +445,10 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
 bool Placeholder_NotFound(RouteContext *context) {
     context->statusCode = 404;
     return Handle(context, context->lastRouter->handler_routeNotFound);
+}
+
+bool Placeholder_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
+    return Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
 }
 
 void *threadRoutine(void *_connection) {
@@ -612,9 +629,8 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
         return Placeholder_NotFound(context);
     }
 
-    pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
-    // cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    cont(result) Placeholder_AddContentLength(context, file.data.len);
+    pure(result) Placeholder_StatusLine(context, 200);
+    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
@@ -626,24 +642,23 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
         return Placeholder_NotFound(context);
     }
 
-    pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
-    // cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    cont(result) Placeholder_AddContentLength(context, file.data.len);
+    pure(result) Placeholder_StatusLine(context, 200);
+    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
 })
 
 ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
-    pure(result) Http_writeStatusLine(context->s, 1, 1, 200, memnull);
-    cont(result) Placeholder_AddContentLength(context, data.len);
+    pure(result) Placeholder_StatusLine(context, 200);
+    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, data);
     return result;
 })
 
 ROUTER_CALLBACK(genericErrorCallback, {
     HttpStatusCode statusCode = context->statusCode;
-    String content = mkString("<body><h1>Something very bad</h1></body>");
+    String content = mkString("<body><h1>Something very bad has happened</h1></body>");
 
     switch(statusCode) {
         case 400:
@@ -660,8 +675,8 @@ ROUTER_CALLBACK(genericErrorCallback, {
             break;
     }
 
-    pure(result) Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
-    cont(result) Placeholder_AddContentLength(context, content.len);
+    pure(result) Placeholder_StatusLine(context, statusCode);
+    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, content);
     return result;
 })

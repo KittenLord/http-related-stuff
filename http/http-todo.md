@@ -5,12 +5,12 @@ All
 - [ ] Be able to parse chunked transfer coding
 - [ ] Apply chunked if any Transfer-Encoding is used as the last one, only once
 - [ ] Not send Transfer-Encoding unless >=HTTP/1.1
-- [ ] Reject message if CR, LF, NUL within a field value
+- [x] Reject message if CR, LF, NUL within a field value
 - [x] Ignore empty list value elements in header values
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
 - [ ] Parse 3 date formats
 - [ ] Figuring out presence of content (RFC-9110 6.4)
-- [ ] Add Date header (unless you don't have a clock lol)
+- [x] Add Date header (unless you don't have a clock lol)
 - [ ] Generate Content-Type
 - [ ] Send either Content-Length or Transfer-Encoding with content
 - [ ] Implement TRACE (9.3.8)

@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include <http/uri.c>
 #include <stream.h>
@@ -95,6 +96,49 @@ typedef struct {
     String value;
     UriAuthority host; // NOTE: never has userinfo
 } HttpH_Host;
+
+bool Http_writeDate(Stream *s) {
+    time_t t = time(NULL);
+    struct tm timeStamp;
+    if(gmtime_r(&t, &timeStamp) != &timeStamp) return false;
+
+    char *wdays[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    char *months[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    char *gmts = "GMT";
+    Mem wday = mkMem(wdays[timeStamp.tm_wday], 3);
+    Mem month = mkMem(months[timeStamp.tm_mon], 3);
+    Mem gmt = mkMem(gmts, 3);
+
+    pure(result) flattenStreamResultWrite(stream_write(s, wday));
+    cont(result) stream_writeChar(s, ',');
+    cont(result) stream_writeChar(s, ' ');
+
+    cont(result) stream_writeChar(s, (timeStamp.tm_mday / 10) + '0');
+    cont(result) stream_writeChar(s, (timeStamp.tm_mday % 10) + '0');
+    cont(result) stream_writeChar(s, ' ');
+    cont(result) flattenStreamResultWrite(stream_write(s, month));
+    cont(result) stream_writeChar(s, ' ');
+    // NOTE: will work for around 7000 years
+    cont(result) decimalFromUNumber(s, timeStamp.tm_year + 1900);
+
+    cont(result) stream_writeChar(s, ' ');
+
+    cont(result) stream_writeChar(s, (timeStamp.tm_hour / 10) + '0');
+    cont(result) stream_writeChar(s, (timeStamp.tm_hour % 10) + '0');
+    cont(result) stream_writeChar(s, ':');
+    cont(result) stream_writeChar(s, (timeStamp.tm_min / 10) + '0');
+    cont(result) stream_writeChar(s, (timeStamp.tm_min % 10) + '0');
+    cont(result) stream_writeChar(s, ':');
+    cont(result) stream_writeChar(s, (timeStamp.tm_sec / 10) + '0');
+    cont(result) stream_writeChar(s, (timeStamp.tm_sec % 10) + '0');
+
+    cont(result) stream_writeChar(s, ' ');
+    cont(result) flattenStreamResultWrite(stream_write(s, gmt));
+
+    return result;
+}
+
+// TODO: Http_parseDate (not that we actually need it tbh, but for completeness's sake)
 
 u16 Http_getVersion(u8 a, u8 b) {
     return ((u16)a << 8) | (u16)b;
