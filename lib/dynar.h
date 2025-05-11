@@ -14,7 +14,7 @@ typedef struct {
 
 #define dynar_peek(ty, dynar) dynar_index(ty, dynar, (dynar)->len - 1)
 
-#define dynar_set(ty, dynar, index, value) do { (((ty *)((dynar)->mem.s))[(index)] = (value)); } while(false)
+#define dynar_set(ty, dynar, index, value) (dynar_index(ty, dynar, index) = (value))
 
 #define dynar_remove(ty, dynar, index) do { \
     if((dynar)->len == 1) { (dynar)->len = 0; break; } \
@@ -104,6 +104,19 @@ bool dynar_containsString(Dynar(String) *dynar, String value) {
         if(mem_eq(loop.it, value)) return true;
     }
     return false;
+}
+
+#define dynar_reverse(ty, dynar) \
+{ \
+    usz lhs = 0; \
+    usz rhs = (dynar)->len - 1; \
+    while(lhs < rhs) { \
+        ty temp = dynar_index((ty), (dynar), lhs); \
+        dynar_index((ty), (dynar), lhs) = dynar_index((ty), (dynar), rhs); \
+        dynar_index((ty), (dynar), rhs) = temp; \
+        lhs += 1; \
+        rhs -= 1; \
+    } \
 }
 
 #endif // __LIB_DYNAR

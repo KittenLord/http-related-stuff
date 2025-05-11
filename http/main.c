@@ -585,7 +585,10 @@ void *threadRoutine(void *_connection) {
         Route route = getRoute(connection.router, &context);
         if(isNone(route)) {
             context.statusCode = 404;
-            Handle(&context, connection.router->handler_routeNotFound);
+            pure(result) Handle(&context, connection.router->handler_routeNotFound);
+            cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
+            if(!result) { goto cleanup; }
+            continue;
         }
 
         bool result = Handle(&context, route.handler);
@@ -733,7 +736,6 @@ int main(int argc, char **argv) {
 
     addRoute(&router, GET, mkString("host"), mkString("/files/*"), mkHandlerArg(fileTreeCallback, memPointer(FileTreeRouter, &ftrouter)));
     addRoute(&router, GET, mkString("host"), mkString("/test"), mkHandlerArg(dataCallback, mkString("<body><h1>Test!</h1></body>")));
-    // addRoute(&router, GET, mkString("host"), mkString("/*"), mkHandler(testCallback));
 
     int i = 0;
     while(++i < 20) {
