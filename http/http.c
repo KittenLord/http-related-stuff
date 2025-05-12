@@ -117,6 +117,7 @@ typedef struct {
     String coding;
     HttpParameters params;
 } HttpTransferCoding;
+#define mkHttpTransferCoding(s) ((HttpTransferCoding){ .coding = mkString(s) })
 
 typedef struct {
     String value;
@@ -757,7 +758,7 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, HttpStatusCode statusCo
     if(minor > 9) return false;
     if(statusCode < 100 || statusCode > 999) return false;
 
-    if(reasonPhrase.s == null) {
+    if(isNull(reasonPhrase)) {
         reasonPhrase = Http_getDefaultReasonPhrase(statusCode);
     }
 

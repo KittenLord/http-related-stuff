@@ -439,6 +439,50 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     return result;
 }
 
+// NOTE: this would've been much cooler if we had lazy streams
+// (i.e. we could make a nested stream that applies all
+// codings, and then lazily request 1024 at a time from it)
+bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
+    Mem mem = memnull;
+
+    pure(result) Placeholder_AddHeader(context, mkString("Transfer-Encoding"), mkString("chunked"));
+    cont(result) Http_writeCRLF(context->s);
+
+    dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
+    dynar_foreach(HttpTransferCoding, codings) {
+        if(loop.index != codings->len - 1 && mem_eq(loop.it.coding, mkString("chunked"))) { return false; }
+
+        if(mem_eq(loop.it.coding, mkString("chunked"))) {
+            ResultRead r;
+            byte buffer[1024];
+
+            while(isJust(r = stream_read(s, mkMem(buffer, 1024)))) {
+                u64 len = r.read;
+                if(len == 0) break;
+
+                u64 elen = Sha_endian64(len);
+                Stream elens = mkStreamStr(mkMem(&elen, 8));
+                cont(result) hexFromBytes(&elens, context->s, false, false);
+                cont(result) Http_writeCRLF(context->s);
+                cont(result) flattenStreamResultWrite(stream_write(context->s, mkMem(buffer, len)));
+                cont(result) Http_writeCRLF(context->s);
+
+                if(r.partial) break;
+            }
+
+            cont(result) stream_writeChar(context->s, '0');
+            cont(result) Http_writeCRLF(context->s);
+        }
+        else {
+            return false;
+        }
+    }
+
+    cont(result) Http_writeCRLF(context->s);
+
+    return result;
+}
+
 bool Placeholder_NotFound(RouteContext *context) {
     context->statusCode = 404;
     return Handle(context, context->lastRouter->handler_routeNotFound);
@@ -661,7 +705,10 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddContent(context, file.data);
+    // cont(result) Placeholder_AddContent(context, file.data);
+    Stream fileStream = mkStreamStr(file.data);
+    Dynar(HttpTransferCoding) codings = mkDynar(HttpTransferCoding);
+    cont(result) Placeholder_AddContentStream(context, &fileStream, &codings);
 
     return result;
 })
