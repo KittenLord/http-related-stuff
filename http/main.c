@@ -105,6 +105,7 @@ struct RouteContext {
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
+    bool persist;
     bool sealedStatus;
     bool sealedHeaders;
     bool sealedContent;
@@ -152,6 +153,9 @@ time_t getFileModTime(String path) {
     if(result != 0) return 0;
     return s.st_mtime;
 }
+
+// TODO: we probably need a getFileStream(), but I'm not sure how to
+// handle close() of the fd
 
 File getFile(String path, Alloc *alloc) {
     printf("GET FILE\n");
@@ -442,18 +446,52 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
 // NOTE: this would've been much cooler if we had lazy streams
 // (i.e. we could make a nested stream that applies all
 // codings, and then lazily request 1024 at a time from it)
-bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
-    Mem mem = memnull;
 
-    pure(result) Placeholder_AddHeader(context, mkString("Transfer-Encoding"), mkString("chunked"));
+// NOTE: also Firefox doesn't support any TE except for chunked,
+// so I won't be able to test this lol
+bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
+    if(context->clientVersion.value < Http_getVersion(1, 1)) {
+        pure(result) Http_writeCRLF(context->s);
+        cont(result) stream_dumpInto(s, context->s);
+        context->persist = false;
+        return result;
+    }
+
+    Stream _s;
+
+    dynar_foreach(HttpTransferCoding, codings) {
+        if(
+        // NOTE: chunked should never appear here
+        !mem_eq(loop.it.coding, mkString("gzip")) &&
+        !mem_eq(loop.it.coding, mkString("deflate")) &&
+        true
+        ) return false;
+
+        if(!map_has(context->headers, mkString("te")) ||
+           !dynar_containsString(&memExtractPtr(HttpH_TE, map_get(context->headers, mkString("te")))->codings, loop.it.coding)) {
+            dynar_remove(HttpTransferCoding, codings, loop.index);
+            loop.index -= 1;
+        }
+    }
+
+    pure(result) true;
+    dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
+    cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Transfer-Encoding: ")));
+
+    dynar_foreach(HttpTransferCoding, codings) {
+        if(loop.index != 0) {
+            cont(result) stream_writeChar(context->s, ',');
+            cont(result) stream_writeChar(context->s, ' ');
+        }
+        cont(result) flattenStreamResultWrite(stream_write(context->s, loop.it.coding));
+    }
+    cont(result) Http_writeCRLF(context->s);
     cont(result) Http_writeCRLF(context->s);
 
-    dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
     dynar_foreach(HttpTransferCoding, codings) {
-        if(loop.index != codings->len - 1 && mem_eq(loop.it.coding, mkString("chunked"))) { return false; }
-
         if(mem_eq(loop.it.coding, mkString("chunked"))) {
             ResultRead r;
+
             byte buffer[1024];
 
             while(isJust(r = stream_read(s, mkMem(buffer, 1024)))) {
@@ -472,6 +510,16 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
 
             cont(result) stream_writeChar(context->s, '0');
             cont(result) Http_writeCRLF(context->s);
+        }
+        else if(mem_eq(loop.it.coding, mkString("gzip"))) {
+            Mem mem = Gzip_compress(stream_dump(s, ALLOC), ALLOC);
+            if(isNull(mem)) return false;
+            _s = mkStreamStr(mem);
+        }
+        else if(mem_eq(loop.it.coding, mkString("deflate"))) {
+            Mem mem = Zlib_compress(stream_dump(s, ALLOC), ALLOC);
+            if(isNull(mem)) return false;
+            _s = mkStreamStr(mem);
         }
         else {
             return false;
@@ -500,7 +548,7 @@ void *threadRoutine(void *_connection) {
     Free(_connection);
 
     // https://stackoverflow.com/questions/2876024/linux-is-there-a-read-or-recv-from-socket-with-timeout
-    struct timeval timeout = { .tv_sec = 60 };
+    struct timeval timeout = { .tv_sec = 60 }; // for some bizarre reason this works only half the time
     setsockopt(connection.clientSock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(struct timeval));
 
     Stream s = mkStreamFd(connection.clientSock);
@@ -637,6 +685,8 @@ void *threadRoutine(void *_connection) {
 
             .mainRouter = connection.router,
             .lastRouter = connection.router,
+
+            .persist = true,
         });
 
         Route route = getRoute(connection.router, &context);
@@ -654,6 +704,8 @@ void *threadRoutine(void *_connection) {
             Handle(&context, connection.router->handler_internalError);
             goto cleanup;
         }
+
+        if(!context.persist) connectionPersists = false;
 
         result = flattenStreamResultWrite(stream_writeFlush(&s));
         if(!result) {

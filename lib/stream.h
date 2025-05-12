@@ -158,7 +158,6 @@ ResultWrite stream_writeRaw(Stream *s, Mem mem) {
         else { return none(ResultWrite); } 
     }
     else {
-        printf("DAAWDADW");
         return none(ResultWrite);
     }
 }
@@ -224,7 +223,6 @@ ResultRead stream_readRaw(Stream *s, Mem mem) {
         return mkResultRead(mem.len, src.len);
     }
     else {
-        printf("READ");
         return none(ResultRead);
     }
 }
@@ -371,6 +369,26 @@ MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine) {
     stream_routeUntil(s, out, '\n', includeNewLine, true);
     MaybeChar c = stream_peekChar(s);
     return c;
+}
+
+bool stream_dumpInto(Stream *in, Stream *out) {
+    ResultRead r;
+    byte buffer[1024];
+    while((r = stream_read(in, mkMem(buffer, 1024))).read != 0) {
+        ResultWrite rw = stream_write(out, mkMem(buffer, r.read));
+        if(rw.error) return false;
+    }
+    if(r.error) return false;
+    return true;
+}
+
+Mem stream_dump(Stream *s, Alloc *alloc) {
+    StringBuilder sb = mkStringBuilder();
+    sb.alloc = alloc;
+    Stream sbs = mkStreamSb(&sb);
+    bool result = stream_dumpInto(s, &sbs);
+    if(!result) return memnull;
+    return sb_build(sb);
 }
 
 #endif // __LIB_STREAM
