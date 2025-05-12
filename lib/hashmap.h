@@ -60,11 +60,11 @@ Mem hm_get(Hashmap *hm, Mem key) {
 }
 
 void hm_remove(Hashmap *hm, Mem key) {
-
+    map_remove(hm_getMap(hm, key), key);
 }
 
 bool hm_has(Hashmap *hm, Mem key) {
-    return true;
+    return map_has(hm_getMap(hm, key), key);
 }
 
 #endif // __LIB_HASHMAP

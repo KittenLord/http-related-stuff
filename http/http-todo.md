@@ -9,7 +9,6 @@ All
 - [x] Ignore empty list value elements in header values
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
 - [ ] Parse 3 date formats
-- [ ] Figuring out presence of content (RFC-9110 6.4)
 - [x] Add Date header (unless you don't have a clock lol)
 - [ ] Generate Content-Type
 - [ ] Send either Content-Length or Transfer-Encoding with content
@@ -28,8 +27,8 @@ Server
 - [x] Respond 400 if whitespace after header and before semicolon
 - [ ] Respond 411 if no Content-Length but has body
 - [ ] Not use transfer encodings and Content-Length in 1xx, 204, 2xx to CONNECT responses
-- [ ] Respond 501 if unsupported Transfer-Encoding
-- [ ] Reject if both Transfer-Encoding and Content-Length, or ignore the latter
+- [x] Respond 501 if unsupported Transfer-Encoding
+- [x] Reject if both Transfer-Encoding and Content-Length, or ignore the latter
 - [ ] Respond 4xx if chunked too long
 - [ ] Reject https requests via unsecured connection
 - [ ] Handle Upgrade header (101 and 426)
@@ -93,6 +92,7 @@ Client
 - [ ] Send User-Agent, though not overly detailed (10.1.5)
 - [ ] Ignore unexpected 1xx responses (15.2)
 - [ ] Automatic redirection on 3xx with Location, with infinite loop prevention (15.4)
+- [ ] Figuring out presence of content (RFC-9110 6.4)
 
 Intermediary
 - [ ] Remove/replace Connection and fields mentioned in it, and ones known to be in Connection (7.6.1)

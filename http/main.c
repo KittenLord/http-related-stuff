@@ -35,6 +35,10 @@
 // allocators the only thing that impactfully wastes work is
 // mem_copy)
 
+#ifndef CONTENT_LIMIT
+#define CONTENT_LIMIT 100000000
+#endif
+
 #define GET_NO_HEAD     (1 << HTTP_GET)
 #define HEAD            (1 << HTTP_HEAD)
 #define GET             (GET_NO_HEAD | HEAD)
@@ -148,7 +152,7 @@ typedef struct {
 
 time_t getFileModTime(String path) {
     struct stat s = {0};
-    int result = stat(path.s, &s);
+    int result = stat(fixchar path.s, &s);
 
     if(result != 0) return 0;
     return s.st_mtime;
@@ -160,17 +164,17 @@ time_t getFileModTime(String path) {
 File getFile(String path, Alloc *alloc) {
     printf("GET FILE\n");
     struct stat s = {0};
-    int result = stat(path.s, &s);
+    int result = stat(fixchar path.s, &s);
     if(result != 0) return none(File);
 
-    FILE *file = fopen(path.s, "r");
+    FILE *file = fopen(fixchar path.s, "r");
     if(file == null) return none(File);
     int fd = fileno(file);
     if(fd == -1) return none(File);
 
     Mem data = AllocateBytesC(alloc, s.st_size);
     isz bytesRead = read(fd, data.s, data.len);
-    if(bytesRead != data.len) {
+    if(bytesRead < 0 || (usz)bytesRead != data.len) {
         FreeC(alloc, data.s);
         return none(File);
     }
@@ -426,13 +430,14 @@ bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
 
 bool Placeholder_AddContentLength(RouteContext *context, u64 length) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Length: ")));
-    cont(result) decimalFromUNumber(context->s, length);
+    cont(result) writeU64ToDecimal(context->s, length);
     cont(result) Http_writeCRLF(context->s);
     return result;
 }
 
 bool Placeholder_AddAllNecessaryHeaders(RouteContext *context) {
     pure(result) Placeholder_AddDate(context);
+    cont(result) Placeholder_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
     return result;
 }
 
@@ -452,7 +457,7 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
 bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
     if(context->clientVersion.value < Http_getVersion(1, 1)) {
         pure(result) Http_writeCRLF(context->s);
-        cont(result) stream_dumpInto(s, context->s);
+        cont(result) stream_dumpInto(s, context->s, 0, true);
         context->persist = false;
         return result;
     }
@@ -500,7 +505,7 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
 
                 u64 elen = Sha_endian64(len);
                 Stream elens = mkStreamStr(mkMem(&elen, 8));
-                cont(result) hexFromBytes(&elens, context->s, false, false);
+                cont(result) writeBytesToHex(&elens, context->s, false, false);
                 cont(result) Http_writeCRLF(context->s);
                 cont(result) flattenStreamResultWrite(stream_write(context->s, mkMem(buffer, len)));
                 cont(result) Http_writeCRLF(context->s);
@@ -512,14 +517,16 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
             cont(result) Http_writeCRLF(context->s);
         }
         else if(mem_eq(loop.it.coding, mkString("gzip"))) {
-            Mem mem = Gzip_compress(stream_dump(s, ALLOC), ALLOC);
+            Mem mem = Gzip_compress(stream_dump(s, ALLOC, 0, true), ALLOC);
             if(isNull(mem)) return false;
             _s = mkStreamStr(mem);
+            s = &_s;
         }
         else if(mem_eq(loop.it.coding, mkString("deflate"))) {
-            Mem mem = Zlib_compress(stream_dump(s, ALLOC), ALLOC);
+            Mem mem = Zlib_compress(stream_dump(s, ALLOC, 0, true), ALLOC);
             if(isNull(mem)) return false;
             _s = mkStreamStr(mem);
+            s = &_s;
         }
         else {
             return false;
@@ -541,6 +548,56 @@ bool Placeholder_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
     if  (result) context->sealedStatus = true;
     cont(result) Placeholder_AddAllNecessaryHeaders(context);
     return result;
+}
+
+Mem Placeholder_GetContent(RouteContext *context) {
+    bool hasContentLength = map_has(context->headers, mkString("content-length"));
+    bool hasTransferEncoding = map_has(context->headers, mkString("transfer-encoding"));
+    if(hasContentLength && hasTransferEncoding) return memnull; // unreachable, caught in threadRoutine
+    if(!hasContentLength && !hasTransferEncoding) return memnull;
+
+    if(hasContentLength) {
+        HttpH_ContentLength contentLength = memExtract(HttpH_ContentLength, map_get(context->headers, mkString("content-length")));
+        if(contentLength.length > CONTENT_LIMIT) return memnull;
+        Mem mem = AllocateBytes(contentLength.length);
+        pure(result) flattenStreamResultRead(stream_read(context->s, mem));
+        if(!result) return memnull;
+        return mem;
+    }
+    else if(hasTransferEncoding) {
+        HttpH_TransferEncoding transferEncoding = memExtract(HttpH_TransferEncoding, map_get(context->headers, mkString("transfer-encoding")));
+        Mem result = memnull;
+        while(transferEncoding.codings.len != 0) {
+            HttpTransferCoding coding = dynar_peek(HttpTransferCoding, &transferEncoding.codings);
+            dynar_pop(HttpTransferCoding, &transferEncoding.codings);
+
+            if(mem_eq(coding.coding, mkString("chunked"))) {
+                StringBuilder sb = mkStringBuilder();
+                Stream s = mkStreamSb(&sb);
+
+                while(true) {
+                    u64 chunkLength;
+                    pure(result) parseU64FromHex(context->s, &chunkLength, false);
+                    // TODO: parse chunk extensions (WHYYYYYY)
+                    cont(result) Http_parseCRLF(context->s);
+                    if(!result) return memnull;
+                    if(chunkLength == 0) { break; } // final chunk
+                    cont(result) stream_dumpInto(&s, context->s, chunkLength, false);
+                    cont(result) Http_parseCRLF(context->s);
+                    if(!result) return memnull;
+                }
+
+                result = sb_build(sb);
+            }
+            else {
+                // unreachable
+                return memnull;
+            }
+        }
+
+        return result;
+    }
+    return memnull;
 }
 
 void *threadRoutine(void *_connection) {
@@ -654,6 +711,41 @@ void *threadRoutine(void *_connection) {
         bool containsKeepalive = connectionHeader != null
             ? dynar_containsString(&connectionHeader->connectionOptions, mkString("keep-alive")) : false;
 
+        if(map_has(&headers, mkString("content-length")) && map_has(&headers, mkString("transfer-encoding"))) {
+            context.statusCode = 400;
+            context.error = HTTPERR_BAD_CONTENT_LENGTH;
+            Handle(&context, connection.router->handler_badRequest);
+            goto cleanup;
+        }
+
+        if(map_has(&headers, mkString("transfer-encoding"))) {
+            HttpH_TransferEncoding transferEncoding = memExtract(HttpH_TransferEncoding, map_get(&headers, mkString("transfer-encoding")));
+            dynar_foreach(HttpTransferCoding, &transferEncoding.codings) {
+                if(loop.index == transferEncoding.codings.len - 1 && !mem_eq(loop.it.coding, mkString("chunked"))) {
+                    context.statusCode = 400;
+                    context.error = HTTPERR_BAD_TRANSFER_CODING;
+                    Handle(&context, connection.router->handler_badRequest);
+                    goto cleanup;
+                }
+
+                if(loop.index != transferEncoding.codings.len - 1 && mem_eq(loop.it.coding, mkString("chunked"))) {
+                    context.statusCode = 400;
+                    context.error = HTTPERR_BAD_TRANSFER_CODING;
+                    Handle(&context, connection.router->handler_badRequest);
+                    goto cleanup;
+                }
+
+                if(
+                !mem_eq(loop.it.coding, mkString("chunked")) &&
+                true) {
+                    context.statusCode = 501;
+                    context.error = HTTPERR_UNKNOWN_TRANSFER_CODING;
+                    Handle(&context, connection.router->handler_notImplemented);
+                    goto cleanup;
+                }
+            }
+        }
+
         if(containsClose)
             { connectionPersists = false; }
         // NOTE: this seems to be as per RFC-9112, but Firefox automatically starts
@@ -718,8 +810,8 @@ void *threadRoutine(void *_connection) {
             HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
             String value = header.value;
 
-            printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
-            printf("HEADER VALUE: %.*s\n", value.len, value.s);
+            printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
+            printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
             printf("-----------\n");
         }
 
@@ -811,6 +903,9 @@ ROUTER_CALLBACK(genericErrorCallback, {
 })
 
 int main(int argc, char **argv) {
+    argc = argc;
+    argv = argv;
+
     ALLOC_PUSH(mkAlloc_LinearExpandable());
 
     int result;
@@ -820,8 +915,11 @@ int main(int argc, char **argv) {
     struct sockaddr_in addr = (struct sockaddr_in){
         .sin_family = AF_INET,
         .sin_port = htons(6969),
-        .sin_addr = htonl(INADDR_ANY)
+        .sin_addr = (struct in_addr){
+            .s_addr = htonl(INADDR_ANY)
+        },
     };
+
     result = bind(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
     printf("BIND: %d\n", result);
 
@@ -867,7 +965,7 @@ int main(int argc, char **argv) {
         result = pthread_create(&thread, &threadAttr, threadRoutine, connection);
         result = pthread_attr_destroy(&threadAttr);
 
-        printf("CONNECTION: %d %d\n", csock, thread);
+        printf("CONNECTION: %d %d\n", csock, (int)thread);
     }
 
     int closeResult = close(sock);

@@ -36,17 +36,30 @@ bool isDigit(byte c) {
     return c >= '0' && c <= '9';
 }
 
+bool isHexDigit(byte c) {
+    return (c >= '0' && c <= '9')
+        || (c >= 'a' && c <= 'f')
+        || (c >= 'A' && c <= 'F');
+}
+
+bool parseU8FromHexDigit(byte c, u8 *result) {
+    if(!isHexDigit(c)) return false;
+    if(result == null) return true;
+    if(c >= '0' && c <= '9') { *result = c - '0'; }
+    if(c >= 'a' && c <= 'f') { *result = c - 'a' + 10; }
+    if(c >= 'A' && c <= 'F') { *result = c - 'A' + 10; }
+    return true;
+}
+
 void toLower(String s) {
-    for(int i = 0; i < s.len; i++) {
+    for(usz i = 0; i < s.len; i++) {
         if(s.s[i] >= 'A' && s.s[i] <= 'Z') {
             s.s[i] = s.s[i] - 'A' + 'a';
         }
     }
 }
 
-// TODO: figure out naming, I'm not sure this one is good
-
-bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
+bool writeBytesToHex(Stream *in, Stream *out, bool capital, bool prefix) {
     MaybeChar c;
 
     if(prefix) {
@@ -75,7 +88,7 @@ bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
     return true;
 }
 
-bool base64FromBytes(Stream *in, Stream *out, bool pad, bool urlVersion) {
+bool writeBytesToBase64(Stream *in, Stream *out, bool pad, bool urlVersion) {
     ResultRead result;
     u32 bufferBack = 0;
     while(isJust(result = stream_read(in, mkMem((byte *)&bufferBack, 3)))) {
@@ -107,7 +120,7 @@ bool base64FromBytes(Stream *in, Stream *out, bool pad, bool urlVersion) {
     return true;
 }
 
-bool decimalFromUNumber(Stream *out, u64 number) {
+bool writeU64ToDecimal(Stream *out, u64 number) {
     if(number == 0) { return stream_writeChar(out, '0'); }
     u64 div = u64decmax;
     bool hasNonZero = false;
@@ -125,7 +138,7 @@ bool decimalFromUNumber(Stream *out, u64 number) {
     return true;
 }
 
-bool unumberFromDecimal(Stream *in, u64 *result, bool exhaust) {
+bool parseU64FromDecimal(Stream *in, u64 *resultp, bool exhaust) {
     u64 acc = 0;
     MaybeChar c;
     while(isJust(c = stream_peekChar(in)) && isDigit(c.value)) {
@@ -134,7 +147,25 @@ bool unumberFromDecimal(Stream *in, u64 *result, bool exhaust) {
         stream_popChar(in);
     }
 
+    *resultp = acc;
     if(exhaust && isJust(c)) { return false; }
+    return true;
+}
+
+bool parseU64FromHex(Stream *in, u64 *resultp, bool exhaust) {
+    u8 count = 0;
+    u64 result = 0;
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(in))) {
+        if(count >= 16) return false; // 16 hex digits -> already 8 bytes
+        u8 digit;
+        if(!parseU8FromHexDigit(c.value, &digit)) break;
+        result = (result << 4) | digit;
+        count += 1;
+    }
+
+    *resultp = result;
+    if(exhaust && isJust(c)) return false;
     return true;
 }
 

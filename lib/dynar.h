@@ -101,7 +101,7 @@ bool dynar_append_clone(Dynar(Mem) *dynar, Mem mem) {
 #define dynar_foreach(ty, dynar) \
     for(struct { usz index; ty it; ty *itptr; } loop = { \
             .index = 0, \
-            .it = ((dynar)->len > 0 ? dynar_index(ty, (dynar), 0) : (ty){0}), \
+            .it = ((dynar)->len > 0 ? dynar_index(ty, (dynar), 0) : (ty){}), \
             .itptr = ((dynar)->len > 0 ? &dynar_index(ty, (dynar), 0) : null) \
         }; \
         loop.index < (dynar)->len; \

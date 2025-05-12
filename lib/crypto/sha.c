@@ -191,7 +191,7 @@ Hash160 Sha1(Mem mem) {
     if(remainder == 0 || remainder >= 64 - 9) { blockCount += 1; } // count space for length
     bool writtenOne = false;
 
-    for(int i = 1; i <= blockCount; i++) {
+    for(u64 i = 1; i <= blockCount; i++) {
         Sha_Block512 block = Sha_getBlock512(mem, len * 8, &writtenOne);
         mem = memIndex(mem, 64);
 
@@ -256,7 +256,7 @@ Hash256 Sha_Sha256Base(Mem mem, u32 initial[8]) {
     if(remainder == 0 || remainder >= 64 - 9) { blockCount += 1; } // count space for length
     bool writtenOne = false;
 
-    for(int i = 1; i <= blockCount; i++) {
+    for(u64 i = 1; i <= blockCount; i++) {
         Sha_Block512 block = Sha_getBlock512(mem, len * 8, &writtenOne);
         mem = memIndex(mem, 64);
 

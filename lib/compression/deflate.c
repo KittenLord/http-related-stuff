@@ -388,7 +388,7 @@ bool Deflate_decompress_block_noncomp(Stream *in, Stream *out, Alloc *alloc) {
     result = stream_read(in, m);
     if(result.partial || result.error) return false;
 
-    if(len != ~nlen) return false;
+    if(len != (u16)~nlen) return false;
 
     // NOTE: use a variation of stream_route maybe?
     m = AllocateBytesC(alloc, len);
@@ -521,7 +521,7 @@ DeflateDeCompResult Deflate_decompress(Stream *raw, Alloc *alloc) {
                 // byte value = DeflateCodeLenValues[entry.value];
                 byte value = entry.value;
 
-                if(value >= 0 && value <= 15) {
+                if(/*value >= 0 &&*/ value <= 15) {
                     last = value;
 
                     bool result;

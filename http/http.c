@@ -29,6 +29,9 @@ typedef enum {
     HTTPERR_INVALID_HEADER_FIELD_VALUE,
     HTTPERR_BAD_HOST,
     HTTPERR_REQUEST_TARGET_TOO_LONG,
+    HTTPERR_BAD_CONTENT_LENGTH,
+    HTTPERR_BAD_TRANSFER_CODING,
+    HTTPERR_UNKNOWN_TRANSFER_CODING,
 } HttpError;
 
 typedef enum {
@@ -100,7 +103,7 @@ typedef struct {
 
 typedef struct {
     String value;
-    u64 contentLength;
+    u64 length;
 } HttpH_ContentLength;
 
 typedef struct {
@@ -124,7 +127,6 @@ typedef struct {
     Dynar(HttpTransferCoding) codings;
 } HttpH_TransferEncoding;
 typedef HttpH_TransferEncoding HttpH_TE;
-typedef HttpH_TransferEncoding HttpH_AcceptLanguage;
 
 bool Http_writeDate(Stream *s) {
     time_t t = time(NULL);
@@ -148,7 +150,7 @@ bool Http_writeDate(Stream *s) {
     cont(result) flattenStreamResultWrite(stream_write(s, month));
     cont(result) stream_writeChar(s, ' ');
     // NOTE: will work for around 7000 years
-    cont(result) decimalFromUNumber(s, timeStamp.tm_year + 1900);
+    cont(result) writeU64ToDecimal(s, timeStamp.tm_year + 1900);
 
     cont(result) stream_writeChar(s, ' ');
 
@@ -291,7 +293,7 @@ HttpParameters Http_parseParameters(Stream *s, Alloc *alloc) {
 
             f32 q = 0;
             f32 div = 1;
-            for(int i = 0; i < value.len; i++) {
+            for(usz i = 0; i < value.len; i++) {
                 if(i == 1 && value.s[i] != '.') return none(HttpParameters);
                 if(i == 1) continue;
 
@@ -338,7 +340,7 @@ HttpMethod Http_parseMethod(Stream *s) {
     else if(mem_eq(mkString("CONNECT"), m)) { return HTTP_CONNECT; }
     else if(mem_eq(mkString("OPTIONS"), m)) { return HTTP_OPTIONS; }
     else if(mem_eq(mkString("TRACE"), m)) { return HTTP_TRACE; }
-    else { return HTTPERR_UNKNOWN_METHOD; } // TODO: custom method handling
+    else { return HTTP_CUSTOM; } // TODO: custom method handling
 }
 
 // FIXME: this is going to kill everything if we encounter CR without LF
@@ -366,6 +368,7 @@ bool Http_writeCRLF(Stream *s) {
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     HttpMethod method = Http_parseMethod(s);
     if(method == HTTP_INVALID_METHOD) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
+    if(method == HTTP_CUSTOM) { return fail(Http11RequestLine, HTTPERR_UNKNOWN_METHOD); }
 
     bool result;
 
@@ -468,6 +471,8 @@ bool Http_isFieldVChar(byte c) {
 MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
     StringBuilder ws = mkStringBuilderCap(32);
     StringBuilder sb = mkStringBuilderCap(32);
+    ws.alloc = alloc;
+    sb.alloc = alloc;
     bool flushWS = false;
 
     MaybeChar c;
@@ -554,8 +559,7 @@ Http_generate_parseHeaderList(TE, "te", codings, HttpTransferCoding, {
     }
 })
 
-// NOTE: testing
-Http_generate_parseHeaderList(AcceptLanguage, "accept-language", codings, HttpTransferCoding, {
+Http_generate_parseHeaderList(TransferEncoding, "transfer-encoding", codings, HttpTransferCoding, {
     MaybeString coding = Http_parseToken(s, map->alloc, 0);
     cont(result) isJust(coding);
     if(result) {
@@ -583,14 +587,14 @@ HttpError Http_parseHeader_ContentLength(Map *map, String value, HttpH_ContentLe
     if(already != null) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
     Stream s = mkStreamStr(value);
 
-    u64 contentLength;
-    bool result = unumberFromDecimal(&s, &contentLength, true);
+    u64 length;
+    bool result = parseU64FromDecimal(&s, &length, true);
 
     if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
 
     HttpH_ContentLength header = {
         .value = value,
-        .contentLength = contentLength,
+        .length = length,
     };
 
     map_set(map, mkString("content-length"), memPointer(HttpH_ContentLength, &header));
@@ -617,7 +621,6 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     if(isNone(mfieldValue)) { return HTTPERR_INVALID_HEADER_FIELD_VALUE; }
     String fieldValue = mfieldValue.value;
 
-    bool alreadyIs = map_has(map, fieldName);
     HttpH_Unknown *already = memExtractPtr(HttpH_Unknown, map_get(map, fieldName));
     if(false) {}
     #define header(ty, str) else if(mem_eq(fieldName, mkString(str))) { return Http_parseHeader_##ty(map, fieldValue, (void *)already); }
@@ -625,7 +628,7 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     header(Host, "host")
     header(ContentLength, "content-length")
     header(TE, "te")
-    header(AcceptLanguage, "accept-language")
+    header(TransferEncoding, "transfer-encoding")
     #undef header
     else {
         HttpH_Unknown header = { .value = fieldValue };
@@ -769,7 +772,7 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, HttpStatusCode statusCo
 
     cont(result) stream_writeChar(s, ' ');
 
-    cont(result) decimalFromUNumber(s, statusCode);
+    cont(result) writeU64ToDecimal(s, statusCode);
 
     cont(result) stream_writeChar(s, ' ');
 

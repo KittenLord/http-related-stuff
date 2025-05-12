@@ -371,22 +371,30 @@ MaybeChar stream_routeLine(Stream *s, Stream *out, bool includeNewLine) {
     return c;
 }
 
-bool stream_dumpInto(Stream *in, Stream *out) {
+bool stream_dumpInto(Stream *in, Stream *out, u64 max, bool returnFalseOnMax) {
+    if(max == 0) max = u64max;
     ResultRead r;
     byte buffer[1024];
     while((r = stream_read(in, mkMem(buffer, 1024))).read != 0) {
-        ResultWrite rw = stream_write(out, mkMem(buffer, r.read));
+        if(max == 0 && returnFalseOnMax) return false;
+        if(max == 0) return true;
+        u64 toWrite = r.read;
+
+        if(toWrite >= max) { toWrite = max; max = 0; }
+        else { max -= toWrite; }
+
+        ResultWrite rw = stream_write(out, mkMem(buffer, toWrite));
         if(rw.error) return false;
     }
     if(r.error) return false;
     return true;
 }
 
-Mem stream_dump(Stream *s, Alloc *alloc) {
+Mem stream_dump(Stream *s, Alloc *alloc, u64 max, bool returnFalseOnMax) {
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
     Stream sbs = mkStreamSb(&sb);
-    bool result = stream_dumpInto(s, &sbs);
+    bool result = stream_dumpInto(s, &sbs, max, returnFalseOnMax);
     if(!result) return memnull;
     return sb_build(sb);
 }

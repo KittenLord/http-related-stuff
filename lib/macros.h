@@ -22,4 +22,6 @@
 #define pure(result) bool result =
 #define cont(result) result = result &&
 
+#define fixchar (const char * restrict)
+
 #endif // __LIB_MACROS
