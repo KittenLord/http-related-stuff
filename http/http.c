@@ -500,12 +500,13 @@ HttpError Http_parseHeader_##headerName(Map *map, String value, HttpH_##headerNa
     StringBuilder sb = mkStringBuilder(); \
     Stream _out = mkStreamSb(&sb); \
     Stream *out = &_out; \
-    bool first = true; \
+    pure(r) true; \
     if(already != null && already->value.len != 0) { \
-        first = false; \
-        pure(r) flattenStreamResultWrite(stream_write(out, already->value)); \
-        if(!r) return HTTPERR_INTERNAL_ERROR; \
+        cont(r) flattenStreamResultWrite(stream_write(out, already->value)); \
+        cont(r) stream_writeChar(out, ','); \
     } \
+    cont(r) flattenStreamResultWrite(stream_write(out, value)); \
+    if(!r) return HTTPERR_INTERNAL_ERROR; \
     HttpH_##headerName header = {0}; \
     header.listName = already == null ? mkDynarA(ty, map->alloc) : already->listName; \
     MaybeChar c; \
@@ -513,18 +514,11 @@ HttpError Http_parseHeader_##headerName(Map *map, String value, HttpH_##headerNa
         bool empty = false; \
         bool result = true; \
         ty value = {0}; \
-        String strValue = memnull; \
         { parseSingle; } \
         if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
         if(!empty) { \
             bool result = true; \
             dynar_append(&header.listName, ty, value, result); \
-            if(!first) { \
-                cont(result) stream_writeChar(out, ','); \
-                cont(result) stream_writeChar(out, ' '); \
-            } \
-            first = false; \
-            cont(result) flattenStreamResultWrite(stream_write(out, strValue)); \
             if(!result) return HTTPERR_INTERNAL_ERROR; \
         } \
         if(isNone(stream_peekChar(s))) break; \

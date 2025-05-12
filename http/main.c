@@ -545,16 +545,16 @@ void *threadRoutine(void *_connection) {
             goto cleanup;
         }
 
-        dynar_foreach(HttpTransferCoding, &memExtract(HttpH_TE, map_get(&headers, mkString("accept-language"))).codings) {
-            printf("Accept-Language: %.*s\n", loop.it.coding.len, loop.it.coding.s);
-            HttpTransferCoding *current = loop.itptr;
-            printf("    PARAM: Q\n");
-            printf("      VALUE: %f\n", loop.it.params.q);
-            dynar_foreach(HttpParameter, &current->params.list) {
-                printf("    PARAM: %.*s\n", loop.it.name.len, loop.it.name.s);
-                printf("      VALUE: %.*s\n", loop.it.value.len, loop.it.value.s);
-            }
-        }
+        // dynar_foreach(HttpTransferCoding, &memExtract(HttpH_TE, map_get(&headers, mkString("accept-language"))).codings) {
+        //     printf("Accept-Language: %.*s\n", loop.it.coding.len, loop.it.coding.s);
+        //     HttpTransferCoding *current = loop.itptr;
+        //     printf("    PARAM: Q\n");
+        //     printf("      VALUE: %f\n", loop.it.params.q);
+        //     dynar_foreach(HttpParameter, &current->params.list) {
+        //         printf("    PARAM: %.*s\n", loop.it.name.len, loop.it.name.s);
+        //         printf("      VALUE: %.*s\n", loop.it.value.len, loop.it.value.s);
+        //     }
+        // }
 
         HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
         bool containsClose = connectionHeader != null
@@ -622,9 +622,9 @@ void *threadRoutine(void *_connection) {
             HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
             String value = header.value;
 
-            // printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
-            // printf("HEADER VALUE: %.*s\n", value.len, value.s);
-            // printf("-----------\n");
+            printf("HEADER NAME: %.*s\n", entry.key.len, entry.key.s);
+            printf("HEADER VALUE: %.*s\n", value.len, value.s);
+            printf("-----------\n");
         }
 
     } while(connectionPersists);
