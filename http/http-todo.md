@@ -3,8 +3,8 @@ All
 - [ ] Invalidate messages with extra CRLFs
 - [x] Respond 400 if invalid request-line
 - [ ] Be able to parse chunked transfer coding
-- [ ] Apply chunked if any Transfer-Encoding is used as the last one, only once
-- [ ] Not send Transfer-Encoding unless >=HTTP/1.1
+- [x] Apply chunked if any Transfer-Encoding is used as the last one, only once
+- [x] Not send Transfer-Encoding unless >=HTTP/1.1
 - [x] Reject message if CR, LF, NUL within a field value
 - [x] Ignore empty list value elements in header values
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
@@ -14,17 +14,18 @@ All
 - [ ] Generate Content-Type
 - [ ] Send either Content-Length or Transfer-Encoding with content
 - [ ] Implement TRACE (9.3.8)
-- [ ] Q values no more 3 digits after dot (12.4.2)
+- [x] Q values no more 3 digits after dot (12.4.2)
 - [ ] Ensure that If-Range not generated without Range
 - [ ] Implement Range, optional (14)
 - [ ] Reject URI with empty host
+- [ ] Error if gzip, deflate, compress or chunked codings have any parameters
 
 Server
 - [ ] Should ignore a single CRLF before request-line (is this a good idea?)
 - [x] Respond 400 if invalid or absent Host
 - [ ] Ignore Host if target URI absolute-form
 - [x] Respond 400 to non HTTP messages
-- [ ] Respond 400 if whitespace after header and before semicolon
+- [x] Respond 400 if whitespace after header and before semicolon
 - [ ] Respond 411 if no Content-Length but has body
 - [ ] Not use transfer encodings and Content-Length in 1xx, 204, 2xx to CONNECT responses
 - [ ] Respond 501 if unsupported Transfer-Encoding
