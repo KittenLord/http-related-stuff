@@ -16,6 +16,8 @@ typedef struct {
 
 #define dynar_set(ty, dynar, index, value) (dynar_index(ty, dynar, index) = (value))
 
+#define dynar_isInit(dynar) ((dynar)->mem.s != null)
+
 #define dynar_remove(ty, dynar, index) do { \
     if((dynar)->len == 1) { (dynar)->len = 0; break; } \
     byte *dst = (void *)(((ty *)((dynar)->mem.s)) + (index)); \
@@ -39,20 +41,28 @@ Dynar(void) makeDynarFixed(usz element, Mem mem, usz len) {
     };
 }
 
-Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
+void dynar_init(Dynar(void) *dynar) {
+    if(dynar->mem.s != null) return;
+    dynar->mem = AllocateBytesC(dynar->alloc, dynar->mem.len);
+}
+
+Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc, bool init) {
     usz len = element * capacity;
-    Mem mem = AllocateBytesC(alloc, len);
-    return (Dynar(void)){
-        .mem = mem,
+    Dynar(void) dynar = {
+        .mem = mkMem(null, len),
         .len = 0,
         .element = element,
         .alloc = alloc
     };
+    if(init) dynar_init(&dynar);
+    return dynar;
 }
 
 #define mkDynarML(ty, mem, len) makeDynarFixed(sizeof(ty), mem, len)
 #define mkDynarM(ty, mem) mkDynarML(ty, mem, 0)
-#define mkDynarCA(ty, cap, alloc) makeDynarAllocate(sizeof(ty), (cap), (alloc))
+#define mkDynarCAI(ty, cap, alloc, init) makeDynarAllocate(sizeof(ty), (cap), (alloc), init)
+#define mkDynarCA(ty, cap, alloc) mkDynarCAI(ty, cap, alloc, false)
+#define mkDynarAI(ty, alloc, init) mkDynarCAI(ty, DYNAR_DEFAULT_CAPACITY, alloc, init)
 #define mkDynarA(ty, alloc) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, alloc)
 #define mkDynar(ty) mkDynarCA(ty, DYNAR_DEFAULT_CAPACITY, ALLOC)
 
@@ -62,6 +72,7 @@ Dynar(void) makeDynarAllocate(usz element, usz capacity, Alloc *alloc) {
     bool _ = true; \
     result = true; \
     if(_) {} \
+    dynar_init(dynar); \
     if((dynar)->len * (dynar)->element < (dynar)->mem.len) { \
         *((ty *)((dynar)->mem.s) + (dynar)->len) = ___value; \
         (dynar)->len++; \

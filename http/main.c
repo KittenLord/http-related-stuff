@@ -105,6 +105,9 @@ struct RouteContext {
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
+    bool sealedStatus;
+    bool sealedHeaders;
+    bool sealedContent;
 };
 
 typedef struct {
@@ -404,9 +407,7 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
 bool Placeholder_AddDate(RouteContext *context) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date: ")));
     cont(result) Http_writeDate(context->s);
-    cont(result) stream_writeChar(context->s, HTTP_CR);
-    cont(result) stream_writeChar(context->s, HTTP_LF);
-
+    cont(result) Http_writeCRLF(context->s);
     return result;
 }
 
@@ -415,28 +416,26 @@ bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
     cont(result) stream_writeChar(context->s, ':');
     cont(result) stream_writeChar(context->s, ' ');
     cont(result) flattenStreamResultWrite(stream_write(context->s, value));
-    cont(result) stream_writeChar(context->s, HTTP_CR);
-    cont(result) stream_writeChar(context->s, HTTP_LF);
-
+    cont(result) Http_writeCRLF(context->s);
     return result;
 }
 
 bool Placeholder_AddContentLength(RouteContext *context, u64 length) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Length: ")));
     cont(result) decimalFromUNumber(context->s, length);
-    cont(result) stream_writeChar(context->s, HTTP_CR);
-    cont(result) stream_writeChar(context->s, HTTP_LF);
+    cont(result) Http_writeCRLF(context->s);
+    return result;
+}
 
+bool Placeholder_AddAllNecessaryHeaders(RouteContext *context) {
+    pure(result) Placeholder_AddDate(context);
     return result;
 }
 
 bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) Placeholder_AddContentLength(context, content.len);
-
-    cont(result) stream_writeChar(context->s, HTTP_CR);
-    cont(result) stream_writeChar(context->s, HTTP_LF);
+    cont(result) Http_writeCRLF(context->s);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
-
     return result;
 }
 
@@ -446,7 +445,10 @@ bool Placeholder_NotFound(RouteContext *context) {
 }
 
 bool Placeholder_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
-    return Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
+    pure(result) Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
+    if  (result) context->sealedStatus = true;
+    cont(result) Placeholder_AddAllNecessaryHeaders(context);
+    return result;
 }
 
 void *threadRoutine(void *_connection) {
@@ -543,6 +545,17 @@ void *threadRoutine(void *_connection) {
             goto cleanup;
         }
 
+        dynar_foreach(HttpTransferCoding, &memExtract(HttpH_TE, map_get(&headers, mkString("accept-language"))).codings) {
+            printf("Accept-Language: %.*s\n", loop.it.coding.len, loop.it.coding.s);
+            HttpTransferCoding *current = loop.itptr;
+            printf("    PARAM: Q\n");
+            printf("      VALUE: %f\n", loop.it.params.q);
+            dynar_foreach(HttpParameter, &current->params.list) {
+                printf("    PARAM: %.*s\n", loop.it.name.len, loop.it.name.s);
+                printf("      VALUE: %.*s\n", loop.it.value.len, loop.it.value.s);
+            }
+        }
+
         HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
         bool containsClose = connectionHeader != null
             ? dynar_containsString(&connectionHeader->connectionOptions, mkString("close")) : false;
@@ -634,7 +647,7 @@ bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body
 bool name(RouteContext *context, String arg) { context = context; arg = arg; { body; } }
 
 #define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty* argname = (argty *)arg.s; { body; } }
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = (argty *)arg.s; { body; } }
 
 ROUTER_CALLBACK(testCallback, {
     printf("helo\n");
@@ -648,7 +661,6 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
@@ -661,7 +673,6 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, file.data);
 
     return result;
@@ -669,7 +680,6 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
 
 ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, data);
     return result;
 })
@@ -697,7 +707,6 @@ ROUTER_CALLBACK(genericErrorCallback, {
     }
 
     pure(result) Placeholder_StatusLine(context, statusCode);
-    cont(result) Placeholder_AddDate(context);
     cont(result) Placeholder_AddContent(context, content);
     return result;
 })

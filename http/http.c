@@ -98,6 +98,33 @@ typedef struct {
     UriAuthority host; // NOTE: never has userinfo
 } HttpH_Host;
 
+typedef struct {
+    String value;
+    u64 contentLength;
+} HttpH_ContentLength;
+
+typedef struct {
+    String name;
+    String value;
+} HttpParameter;
+typedef struct {
+    bool error;
+    f32 q;
+    Dynar(HttpParameter) list;
+} HttpParameters;
+
+typedef struct {
+    String coding;
+    HttpParameters params;
+} HttpTransferCoding;
+
+typedef struct {
+    String value;
+    Dynar(HttpTransferCoding) codings;
+} HttpH_TransferEncoding;
+typedef HttpH_TransferEncoding HttpH_TE;
+typedef HttpH_TransferEncoding HttpH_AcceptLanguage;
+
 bool Http_writeDate(Stream *s) {
     time_t t = time(NULL);
     struct tm timeStamp;
@@ -172,6 +199,7 @@ bool Http_isTokenChar(byte c) {
     (c >= 'A' && c <= 'Z');
 }
 
+// TODO: probably remove maxLen, we should limit the whole request body instead
 MaybeString Http_parseToken(Stream *s, Alloc *alloc, isz maxLen) {
     StringBuilder sb = mkStringBuilderCap(maxLen <= 0 ? 32 : maxLen);
     sb.alloc = alloc;
@@ -189,6 +217,103 @@ MaybeString Http_parseToken(Stream *s, Alloc *alloc, isz maxLen) {
 
     String token = sb_build(sb);
     return just(MaybeString, token);
+}
+
+MaybeString Http_parseQuotedString(Stream *s, Alloc *alloc) {
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c) || c.value != '\"') return none(MaybeString);
+    stream_popChar(s);
+
+    StringBuilder sb = mkStringBuilder();
+    sb.alloc = alloc;
+
+    while(isJust(c = stream_popChar(s)) && c.value != '\"') {
+        if(c.value == '\\') {
+            MaybeChar next = stream_popChar(s);
+            if(isNone(next)) return none(MaybeString);
+            sb_appendChar(&sb, next.value);
+        }
+        else {
+            sb_appendChar(&sb, c.value);
+        }
+    }
+
+    String value = sb_build(sb);
+    return just(MaybeString, value);
+}
+
+MaybeString Http_parseTokenOrQuotedString(Stream *s, Alloc *alloc) {
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c)) return none(MaybeString);
+    if(c.value == '\"') return Http_parseQuotedString(s, alloc);
+    else                return Http_parseToken(s, alloc, 0);
+}
+
+HttpParameters Http_parseParameters(Stream *s, Alloc *alloc) {
+    HttpParameters result = {
+        .error = false,
+        .q = 1,
+        .list = mkDynarA(HttpParameter, alloc),
+    };
+
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(s))) {
+        Http_parseWS(s);
+
+        c = stream_peekChar(s);
+        // NOTE: hopefully we've encountered a comma, and not some junk
+        if(isNone(c) || c.value != ';') return result;
+        stream_popChar(s);
+
+        Http_parseWS(s);
+
+        c = stream_peekChar(s);
+        if(isNone(c)) return none(HttpParameters);
+        if(c.value == ';') continue; // for some stupid reason HTTP spec allows empty parameters
+
+        MaybeString nameM = Http_parseToken(s, alloc, 0);
+        if(isNone(nameM)) return none(HttpParameters);
+        String name = nameM.value;
+        toLower(name);
+
+        c = stream_peekChar(s);
+        if(isNone(c) || c.value != '=') return none(HttpParameters);
+        stream_popChar(s);
+
+        MaybeString valueM = Http_parseTokenOrQuotedString(s, alloc);
+        if(isNone(valueM)) return none(HttpParameters);
+        String value = valueM.value;
+
+        if(mem_eq(name, mkString("q"))) {
+            if(value.len > (1 + 1 + 3)) return none(HttpParameters);
+            if(value.len == 0) return none(HttpParameters);
+
+            f32 q = 0;
+            f32 div = 1;
+            for(int i = 0; i < value.len; i++) {
+                if(i == 1 && value.s[i] != '.') return none(HttpParameters);
+                if(i == 1) continue;
+
+                if(!isDigit(value.s[i])) return none(HttpParameters);
+                if(i == 0 && value.s[i] != '0' && value.s[i] != '1') return none(HttpParameters);
+
+                q += (f32)(value.s[i] - '0') / div;
+                div *= 10;
+            }
+
+            result.q = q;
+        }
+        else {
+            HttpParameter param = {
+                .name = name,
+                .value = value,
+            };
+
+            dynar_append(&result.list, HttpParameter, param, _);
+        }
+    }
+
+    return result;
 }
 
 bool Http_parseOne(Stream *s, byte c) {
@@ -212,7 +337,7 @@ HttpMethod Http_parseMethod(Stream *s) {
     else if(mem_eq(mkString("CONNECT"), m)) { return HTTP_CONNECT; }
     else if(mem_eq(mkString("OPTIONS"), m)) { return HTTP_OPTIONS; }
     else if(mem_eq(mkString("TRACE"), m)) { return HTTP_TRACE; }
-    else { return HTTPERR_UNKNOWN_METHOD; }
+    else { return HTTPERR_UNKNOWN_METHOD; } // TODO: custom method handling
 }
 
 // FIXME: this is going to kill everything if we encounter CR without LF
@@ -229,6 +354,12 @@ bool Http_parseCRLF(Stream *s) {
 
     stream_popChar(s);
     return true;
+}
+
+bool Http_writeCRLF(Stream *s) {
+    pure(result) stream_writeChar(s, HTTP_CR);
+    cont(result) stream_writeChar(s, HTTP_LF);
+    return result;
 }
 
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
@@ -362,57 +493,83 @@ MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
     return just(MaybeString, sb_build(sb));
 }
 
-// TODO: macros for generating header parsers (those that support lists to be
-// precise, since they have similar logic)
-
-HttpError Http_parseHeader_Connection(Map *map, String value, HttpH_Connection *already) {
-    Stream _s = mkStreamStr(value);
-    Stream *s = &_s;
-
-    StringBuilder sb = mkStringBuilder();
-    Stream _out = mkStreamSb(&sb);
-    Stream *out = &_out;
-
-    bool first = true;
-    if(already != null && already->value.len != 0) {
-        first = false;
-        pure(r) flattenStreamResultWrite(stream_write(out, already->value));
-        if(!r) return HTTPERR_INTERNAL_ERROR;
-    }
-
-    HttpH_Connection header = {0};
-    header.connectionOptions = already == null ? mkDynar(map->alloc) : already->connectionOptions;
-
-    MaybeChar c;
-    while(isJust(c = stream_peekChar(s))) {
-        MaybeString connectionOption = Http_parseToken(s, map->alloc, 0);
-
-        // 0-length elements are skipped as per RFC-9110
-        if(isJust(connectionOption)) {
-            bool result = true;
-            dynar_append(&header.connectionOptions, String, connectionOption.value, result);
-            if(!first) {
-                cont(result) stream_writeChar(out, ',');
-                cont(result) stream_writeChar(out, ' ');
-            }
-            first = false;
-            cont(result) flattenStreamResultWrite(stream_write(out, connectionOption.value));
-            if(!result) return HTTPERR_INTERNAL_ERROR;
-        }
-
-        if(isNone(stream_peekChar(s))) break;
-
-        Http_parseWS(s);
-        bool r = Http_parseOne(s, ',');
-        if(!r) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
-        Http_parseWS(s);
-    }
-
-    header.value = sb_build(sb);
-
-    map_set(map, mkString("connection"), memPointer(HttpH_Connection, &header));
-    return HTTPERR_SUCCESS;
+#define Http_generate_parseHeaderList(headerName, headerStr, listName, ty, parseSingle) \
+HttpError Http_parseHeader_##headerName(Map *map, String value, HttpH_##headerName *already) { \
+    Stream _s = mkStreamStr(value); \
+    Stream *s = &_s; \
+    StringBuilder sb = mkStringBuilder(); \
+    Stream _out = mkStreamSb(&sb); \
+    Stream *out = &_out; \
+    bool first = true; \
+    if(already != null && already->value.len != 0) { \
+        first = false; \
+        pure(r) flattenStreamResultWrite(stream_write(out, already->value)); \
+        if(!r) return HTTPERR_INTERNAL_ERROR; \
+    } \
+    HttpH_##headerName header = {0}; \
+    header.listName = already == null ? mkDynarA(ty, map->alloc) : already->listName; \
+    MaybeChar c; \
+    while(isJust(c = stream_peekChar(s))) { \
+        bool empty = false; \
+        bool result = true; \
+        ty value = {0}; \
+        String strValue = memnull; \
+        { parseSingle; } \
+        if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+        if(!empty) { \
+            bool result = true; \
+            dynar_append(&header.listName, ty, value, result); \
+            if(!first) { \
+                cont(result) stream_writeChar(out, ','); \
+                cont(result) stream_writeChar(out, ' '); \
+            } \
+            first = false; \
+            cont(result) flattenStreamResultWrite(stream_write(out, strValue)); \
+            if(!result) return HTTPERR_INTERNAL_ERROR; \
+        } \
+        if(isNone(stream_peekChar(s))) break; \
+        Http_parseWS(s); \
+        bool r = Http_parseOne(s, ','); \
+        if(!r) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+        Http_parseWS(s); \
+    } \
+    header.value = sb_build(sb); \
+    map_set(map, mkString(headerStr), memPointer(HttpH_##headerName, &header)); \
+    return HTTPERR_SUCCESS; \
 }
+
+Http_generate_parseHeaderList(Connection, "connection", connectionOptions, String, {
+    MaybeString connectionOption = Http_parseToken(s, map->alloc, 0);
+    // if(isNone(connectionOption)) {
+    //     empty = true;
+    // }
+    {
+        value = connectionOption.value;
+    }
+})
+
+Http_generate_parseHeaderList(TE, "te", codings, HttpTransferCoding, {
+    MaybeString coding = Http_parseToken(s, map->alloc, 0);
+    cont(result) !coding.error;
+    if(result) {
+        HttpParameters params = Http_parseParameters(s, map->alloc);
+        cont(result) !params.error;
+
+        value = ((HttpTransferCoding){ .coding = coding.value, .params = params });
+    }
+})
+
+// NOTE: testing
+Http_generate_parseHeaderList(AcceptLanguage, "accept-language", codings, HttpTransferCoding, {
+    MaybeString coding = Http_parseToken(s, map->alloc, 0);
+    cont(result) isJust(coding);
+    if(result) {
+        HttpParameters params = Http_parseParameters(s, map->alloc);
+        cont(result) isJust(params);
+
+        value = ((HttpTransferCoding){ .coding = coding.value, .params = params });
+    }
+})
 
 HttpError Http_parseHeader_Host(Map *map, String value, HttpH_Host *already) {
     if(already != null) return HTTPERR_BAD_HOST;
@@ -424,6 +581,24 @@ HttpError Http_parseHeader_Host(Map *map, String value, HttpH_Host *already) {
         .host = host,
     };
     map_set(map, mkString("host"), memPointer(HttpH_Host, &header));
+    return HTTPERR_SUCCESS;
+}
+
+HttpError Http_parseHeader_ContentLength(Map *map, String value, HttpH_ContentLength *already) {
+    if(already != null) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+    Stream s = mkStreamStr(value);
+
+    u64 contentLength;
+    bool result = unumberFromDecimal(&s, &contentLength, true);
+
+    if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+
+    HttpH_ContentLength header = {
+        .value = value,
+        .contentLength = contentLength,
+    };
+
+    map_set(map, mkString("content-length"), memPointer(HttpH_ContentLength, &header));
     return HTTPERR_SUCCESS;
 }
 
@@ -450,12 +625,13 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     bool alreadyIs = map_has(map, fieldName);
     HttpH_Unknown *already = memExtractPtr(HttpH_Unknown, map_get(map, fieldName));
     if(false) {}
-    else if(mem_eq(fieldName, mkString("connection"))) {
-        return Http_parseHeader_Connection(map, fieldValue, (void *)already);
-    }
-    else if(mem_eq(fieldName, mkString("host"))) {
-        return Http_parseHeader_Host(map, fieldValue, (void *)already);
-    }
+    #define header(ty, str) else if(mem_eq(fieldName, mkString(str))) { return Http_parseHeader_##ty(map, fieldValue, (void *)already); }
+    header(Connection, "connection")
+    header(Host, "host")
+    header(ContentLength, "content-length")
+    header(TE, "te")
+    header(AcceptLanguage, "accept-language")
+    #undef header
     else {
         HttpH_Unknown header = { .value = fieldValue };
         map_setRepeat(map, fieldName, memPointer(HttpH_Unknown, &header));
@@ -591,24 +767,21 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, HttpStatusCode statusCo
         reasonPhrase = Http_getDefaultReasonPhrase(statusCode);
     }
 
-    stream_write(s, mkString("HTTP/"));
-    stream_writeChar(s, major + '0');
-    stream_writeChar(s, '.');
-    stream_writeChar(s, minor + '0');
+    pure(result) flattenStreamResultWrite(stream_write(s, mkString("HTTP/")));
+    cont(result) stream_writeChar(s, major + '0');
+    cont(result) stream_writeChar(s, '.');
+    cont(result) stream_writeChar(s, minor + '0');
 
-    stream_writeChar(s, ' ');
+    cont(result) stream_writeChar(s, ' ');
 
-    decimalFromUNumber(s, statusCode);
+    cont(result) decimalFromUNumber(s, statusCode);
 
-    stream_writeChar(s, ' ');
+    cont(result) stream_writeChar(s, ' ');
 
-    stream_write(s, reasonPhrase);
+    cont(result) flattenStreamResultWrite(stream_write(s, reasonPhrase));
 
-    stream_writeChar(s, HTTP_CR);
-    stream_writeChar(s, HTTP_LF);
-
-    // stream_writeFlush(s);
-    return true;
+    cont(result) Http_writeCRLF(s);
+    return result;
 }
 
 #endif // __LIB_HTTP

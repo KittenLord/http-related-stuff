@@ -24,7 +24,7 @@ typedef struct {
 } MapIter;
 
 #define mkMap() mkMapA(ALLOC)
-#define mkMapA(a) ((Map){ .map = mkDynarA(MapEntry, (a)), .alloc = (a), .lock = PTHREAD_MUTEX_INITIALIZER })
+#define mkMapA(a) ((Map){ .map = mkDynarAI(MapEntry, (a), true), .alloc = (a), .lock = PTHREAD_MUTEX_INITIALIZER })
 
 int map_lock(Map *map) {
     return pthread_mutex_lock(&map->lock);

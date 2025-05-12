@@ -32,6 +32,20 @@ u8 alphabet_english[26] = {
     'u', 'v', 'w', 'x', 'y', 'z',
 };
 
+bool isDigit(byte c) {
+    return c >= '0' && c <= '9';
+}
+
+void toLower(String s) {
+    for(int i = 0; i < s.len; i++) {
+        if(s.s[i] >= 'A' && s.s[i] <= 'Z') {
+            s.s[i] = s.s[i] - 'A' + 'a';
+        }
+    }
+}
+
+// TODO: figure out naming, I'm not sure this one is good
+
 bool hexFromBytes(Stream *in, Stream *out, bool capital, bool prefix) {
     MaybeChar c;
 
@@ -108,6 +122,19 @@ bool decimalFromUNumber(Stream *out, u64 number) {
         if(!stream_writeChar(out, digit + '0')) return false;
     }
 
+    return true;
+}
+
+bool unumberFromDecimal(Stream *in, u64 *result, bool exhaust) {
+    u64 acc = 0;
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(in)) && isDigit(c.value)) {
+        if(acc >= u64decmax) return false;
+        acc = (acc * 10) + (c.value - '0');
+        stream_popChar(in);
+    }
+
+    if(exhaust && isJust(c)) { return false; }
     return true;
 }
 

@@ -17,6 +17,7 @@ All
 - [ ] Q values no more 3 digits after dot (12.4.2)
 - [ ] Ensure that If-Range not generated without Range
 - [ ] Implement Range, optional (14)
+- [ ] Reject URI with empty host
 
 Server
 - [ ] Should ignore a single CRLF before request-line (is this a good idea?)
