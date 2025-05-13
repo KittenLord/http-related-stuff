@@ -34,7 +34,7 @@ Server
 - [ ] Handle Upgrade header (101 and 426)
 - [x] Send Last-Modified if possible
 - [x] Send ETag if possible
-- [ ] Support GET and HEAD, can list allowed methods for a resource in Allow header
+- [x] Support GET and HEAD, can list allowed methods for a resource in Allow header
 - [x] Respond 501 if unrecognized/unimplemented method
 - [x] Respond 405 if recognized method, but unsupported/unallowed, send Allow with allowed methods
 - [ ] Disable unsafe query behavior for safe methods

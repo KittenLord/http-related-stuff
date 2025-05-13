@@ -1086,7 +1086,7 @@ ROUTER_CALLBACK(genericErrorCallback, {
             content = mkString("<html><body><h1>404 Not Found</h1><h2>Sorry we don't have this here</h2></body></html>");
             break;
         case 405:
-            cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Accept: ")));
+            cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Allow: ")));
             bool written = false;
             for(int i = 0; context->allowedMethodMask; i++) {
                 if(i != 0 && context->allowedMethodMask & 1) {

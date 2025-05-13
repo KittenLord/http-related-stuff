@@ -152,6 +152,61 @@ typedef struct {
 } HttpH_TransferEncoding;
 typedef HttpH_TransferEncoding HttpH_TE;
 
+typedef struct {
+    bool error;
+
+    bool isWeak;
+    String value;
+} HttpEntityTag;
+
+bool Http_isObsText(byte c) {
+    return c >= 0x80 /* && c <= 0xFF */ ;
+}
+
+bool Http_isVChar(byte c) {
+    // https://datatracker.ietf.org/doc/html/rfc5234
+    return c >= 0x21 && c <= 0x7E;
+}
+
+bool Http_isFieldVChar(byte c) {
+    return Http_isVChar(c) || Http_isObsText(c);
+}
+
+HttpEntityTag Http_parseEntityTag(Stream *s, Alloc *alloc) {
+    StringBuilder sb = mkStringBuilder();
+    sb.alloc = alloc;
+
+    bool isWeak = false;
+
+    MaybeChar c = stream_peekChar(s);
+    if(isNone(c)) return none(HttpEntityTag);
+    if(c.value != 'W' && c.value != '\"') return none(HttpEntityTag);
+
+    if(c.value == 'W') {
+        stream_popChar(s);
+        c = stream_peekChar(s);
+        if(isNone(c) || c.value != '/') return none(HttpEntityTag);
+        stream_popChar(s);
+        isWeak = true;
+    }
+
+    c = stream_peekChar(s);
+    if(isNone(c) || c.value != '\"') return none(HttpEntityTag);
+    stream_popChar(s);
+
+    while(isJust(c = stream_peekChar(s)) && c.value != '\"' && Http_isFieldVChar(c.value)) {
+        sb_appendChar(&sb, c.value);
+    }
+
+    if(isNone(c)) return none(HttpEntityTag);
+    if(c.value != '\"') return none(HttpEntityTag);
+    
+    return (HttpEntityTag){
+        .isWeak = isWeak,
+        .value = sb_build(sb),
+    };
+}
+
 f32 Http_matchMediaType(HttpMediaType allowed, HttpMediaType testing) {
     if(allowed.typeWildcard && allowed.subtypeWildcard) return allowed.q;
     if(allowed.typeWildcard && mem_eq(allowed.subtype, testing.subtype)) return allowed.q;
@@ -548,19 +603,6 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
 
     return requestLine;
-}
-
-bool Http_isObsText(byte c) {
-    return c >= 0x80 /* && c <= 0xFF */ ;
-}
-
-bool Http_isVChar(byte c) {
-    // https://datatracker.ietf.org/doc/html/rfc5234
-    return c >= 0x21 && c <= 0x7E;
-}
-
-bool Http_isFieldVChar(byte c) {
-    return Http_isVChar(c) || Http_isObsText(c);
 }
 
 MaybeString Http_parseHeaderFieldValue(Stream *s, Alloc *alloc) {
