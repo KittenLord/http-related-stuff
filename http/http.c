@@ -175,8 +175,7 @@ bool Http_writeMediaType(Stream *s, HttpMediaType mediaType) {
     return result;
 }
 
-bool Http_writeDate(Stream *s) {
-    time_t t = time(NULL);
+bool Http_writeDate(Stream *s, time_t t) {
     struct tm timeStamp;
     if(gmtime_r(&t, &timeStamp) != &timeStamp) return false;
 
@@ -214,6 +213,10 @@ bool Http_writeDate(Stream *s) {
     cont(result) flattenStreamResultWrite(stream_write(s, gmt));
 
     return result;
+}
+
+bool Http_writeDateNow(Stream *s) {
+    return Http_writeDate(s, time(NULL));
 }
 
 // TODO: Http_parseDate (not that we actually need it tbh, but for completeness's sake)

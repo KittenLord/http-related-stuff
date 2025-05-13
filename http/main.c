@@ -110,7 +110,7 @@ struct RouteContext {
     // Present if error
     HttpError error;
     HttpStatusCode statusCode;
-    HttpMethodMask methodMask;
+    HttpMethodMask allowedMethodMask;
 
     // Present if success
     HttpVersion clientVersion;
@@ -130,7 +130,10 @@ typedef struct {
     Mem data;
     HttpMediaType mediaType;
     time_t modTime;
+
     Hash256 hash;
+    bool hasHash;
+
     Mem gzip;
     Mem zlib;
 } File;
@@ -241,6 +244,7 @@ File getFile(String path, Alloc *alloc) {
 void storageFillFile(File *file, FileStorage *storage) {
     if(storage->doHash) {
         file->hash = Sha256(file->data);
+        file->hasHash = true;
     }
 
     if(storage->doGzip) {
@@ -470,7 +474,29 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
 
 bool Placeholder_AddDate(RouteContext *context) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date: ")));
-    cont(result) Http_writeDate(context->s);
+    cont(result) Http_writeDateNow(context->s);
+    cont(result) Http_writeCRLF(context->s);
+    return result;
+}
+
+bool Placeholder_AddETag(RouteContext *context, Mem data, bool isWeak) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("ETag: ")));
+    if(isWeak) {
+        cont(result) stream_writeChar(context->s, 'W');
+        cont(result) stream_writeChar(context->s, '/');
+    }
+
+    cont(result) stream_writeChar(context->s, '\"');
+    Stream s = mkStreamStr(data);
+    cont(result) writeBytesToBase64(&s, context->s, false, false);
+    cont(result) stream_writeChar(context->s, '\"');
+    cont(result) Http_writeCRLF(context->s);
+    return result;
+}
+
+bool Placeholder_AddLastModified(RouteContext *context, time_t lastModified) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Last-Modified: ")));
+    cont(result) Http_writeDate(context->s, lastModified);
     cont(result) Http_writeCRLF(context->s);
     return result;
 }
@@ -482,6 +508,17 @@ bool Placeholder_AddHeader(RouteContext *context, String header, String value) {
     cont(result) flattenStreamResultWrite(stream_write(context->s, value));
     cont(result) Http_writeCRLF(context->s);
     return result;
+}
+
+bool Placeholder_SealHeaders(RouteContext *context) {
+    if(!context->sealedStatus) return false;
+    if(context->sealedHeaders) return false;
+
+    pure(result) Http_writeCRLF(context->s);
+    if(!result) return false;
+
+    context->sealedHeaders = true;
+    return true;
 }
 
 bool Placeholder_AddContentLength(RouteContext *context, u64 length) {
@@ -499,7 +536,7 @@ bool Placeholder_AddAllNecessaryHeaders(RouteContext *context) {
 
 bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) Placeholder_AddContentLength(context, content.len);
-    cont(result) Http_writeCRLF(context->s);
+    cont(result) Placeholder_SealHeaders(context);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
     return result;
 }
@@ -513,7 +550,24 @@ bool Placeholder_AddContentType(RouteContext *context, HttpMediaType mediaType) 
 
 bool Placeholder_AddFile(RouteContext *context, File file) {
     pure(result) Placeholder_AddContentType(context, file.mediaType);
+    if(file.hasHash) {
+        cont(result) Placeholder_AddETag(context, mkMem(file.hash.data, 256 / 8), false);
+    }
+    cont(result) Placeholder_AddLastModified(context, file.modTime);
     cont(result) Placeholder_AddContent(context, file.data);
+    return result;
+}
+
+bool Placeholder_AddTransferEncoding(RouteContext *context, Dynar(HttpTransferCoding) *codings) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Transfer-Encoding: ")));
+    dynar_foreach(HttpTransferCoding, codings) {
+        if(loop.index != 0) {
+            cont(result) stream_writeChar(context->s, ',');
+            cont(result) stream_writeChar(context->s, ' ');
+        }
+        cont(result) flattenStreamResultWrite(stream_write(context->s, loop.it.coding));
+    }
+    cont(result) Http_writeCRLF(context->s);
     return result;
 }
 
@@ -525,7 +579,7 @@ bool Placeholder_AddFile(RouteContext *context, File file) {
 // so I won't be able to test this lol
 bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
     if(context->clientVersion.value < Http_getVersion(1, 1)) {
-        pure(result) Http_writeCRLF(context->s);
+        pure(result) Placeholder_SealHeaders(context);
         cont(result) stream_dumpInto(s, context->s, 0, true);
         context->persist = false;
         return result;
@@ -550,17 +604,8 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
 
     pure(result) true;
     dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
-    cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Transfer-Encoding: ")));
-
-    dynar_foreach(HttpTransferCoding, codings) {
-        if(loop.index != 0) {
-            cont(result) stream_writeChar(context->s, ',');
-            cont(result) stream_writeChar(context->s, ' ');
-        }
-        cont(result) flattenStreamResultWrite(stream_write(context->s, loop.it.coding));
-    }
-    cont(result) Http_writeCRLF(context->s);
-    cont(result) Http_writeCRLF(context->s);
+    cont(result) Placeholder_AddTransferEncoding(context, codings);
+    cont(result) Placeholder_SealHeaders(context);
 
     dynar_foreach(HttpTransferCoding, codings) {
         if(mem_eq(loop.it.coding, mkString("chunked"))) {
@@ -923,7 +968,7 @@ void *threadRoutine(void *_connection) {
         if(isNone(route)) {
             if(isFail(route, ROUTE_ERR_FOUND_URI)) {
                 context.statusCode = 405;
-                context.methodMask = route.methodMask;
+                context.allowedMethodMask = route.methodMask;
                 pure(result) Handle(&context, connection.router->handler_badRequest);
                 cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
                 if(!result) { goto cleanup; }
@@ -1043,8 +1088,8 @@ ROUTER_CALLBACK(genericErrorCallback, {
         case 405:
             cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Accept: ")));
             bool written = false;
-            for(int i = 0; context->methodMask; i++) {
-                if(i != 0 && context->methodMask & 1) {
+            for(int i = 0; context->allowedMethodMask; i++) {
+                if(i != 0 && context->allowedMethodMask & 1) {
                     MaybeString s = Http_getMethod(i);
                     if(isJust(s)) {
                         if(written) {
@@ -1055,7 +1100,7 @@ ROUTER_CALLBACK(genericErrorCallback, {
                         written = true;
                     }
                 }
-                context->methodMask >>= 1;
+                context->allowedMethodMask >>= 1;
             }
             cont(result) Http_writeCRLF(context->s);
             content = mkString("<html><body><h1>405 Method Not Allowed</h1><h2>that is a very nuh uh method for this so called resource</h2></body></html>");
@@ -1110,6 +1155,8 @@ int main(int argc, char **argv) {
     };
 
     FileStorage storage = { .alloc = ALLOC_GLOBAL, .hm = mkHashmap(ALLOC_GLOBAL) };
+    storage.doHash = true;
+
     hm_fix(&storage.hm);
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
 

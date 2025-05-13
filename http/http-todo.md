@@ -10,8 +10,8 @@ All
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
 - [ ] Parse 3 date formats
 - [x] Add Date header (unless you don't have a clock lol)
-- [ ] Generate Content-Type
-- [ ] Send either Content-Length or Transfer-Encoding with content
+- [x] Generate Content-Type
+- [x] Send either Content-Length or Transfer-Encoding with content
 - [ ] Implement TRACE (9.3.8)
 - [x] Q values no more 3 digits after dot (12.4.2)
 - [ ] Ensure that If-Range not generated without Range
@@ -25,15 +25,15 @@ Server
 - [ ] Ignore Host if target URI absolute-form
 - [x] Respond 400 to non HTTP messages
 - [x] Respond 400 if whitespace after header and before semicolon
-- [ ] Respond 411 if no Content-Length but has body
+- [ ] Respond 411 if no Content-Length but has body (how the hell do you detect this)
 - [ ] Not use transfer encodings and Content-Length in 1xx, 204, 2xx to CONNECT responses
 - [x] Respond 501 if unsupported Transfer-Encoding
 - [x] Reject if both Transfer-Encoding and Content-Length, or ignore the latter
 - [ ] Respond 4xx if chunked too long
 - [ ] Reject https requests via unsecured connection
 - [ ] Handle Upgrade header (101 and 426)
-- [ ] Send Last-Modified if possible
-- [ ] Send ETag if possible
+- [x] Send Last-Modified if possible
+- [x] Send ETag if possible
 - [ ] Support GET and HEAD, can list allowed methods for a resource in Allow header
 - [x] Respond 501 if unrecognized/unimplemented method
 - [x] Respond 405 if recognized method, but unsupported/unallowed, send Allow with allowed methods
