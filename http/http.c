@@ -117,6 +117,21 @@ typedef struct {
 } HttpParameters;
 
 typedef struct {
+    String type;
+    bool typeWildcard;
+
+    String subtype;
+    bool subtypeWildcard;
+
+    f32 q;
+
+    HttpParameters params;
+} HttpMediaType;
+#define mkHttpMediaType(a, b) ((HttpMediaType){ .type = mkString(a), .typeWildcard = false, .subtype = mkString(b), .subtypeWildcard = false })
+#define mkHttpMediaTypeX(a) ((HttpMediaType){ .type = mkString(a), .typeWildcard = false, .subtypeWildcard = true })
+#define mkHttpMediaTypeXX() ((HttpMediaType){ .typeWildcard = true, .subtypeWildcard = true })
+
+typedef struct {
     String name;
     MaybeString value;
 } HttpChunkExtension;
@@ -136,6 +151,29 @@ typedef struct {
     Dynar(HttpTransferCoding) codings;
 } HttpH_TransferEncoding;
 typedef HttpH_TransferEncoding HttpH_TE;
+
+f32 Http_matchMediaType(HttpMediaType allowed, HttpMediaType testing) {
+    if(allowed.typeWildcard && allowed.subtypeWildcard) return allowed.q;
+    if(allowed.typeWildcard && mem_eq(allowed.subtype, testing.subtype)) return allowed.q;
+    if(mem_eq(allowed.type, testing.type) && mem_eq(allowed.subtype, testing.subtype)) return allowed.q;
+    return 0;
+}
+
+bool Http_writeMediaType(Stream *s, HttpMediaType mediaType) {
+    pure(result) true;
+    if(mediaType.typeWildcard) cont(result) stream_writeChar(s, '*');
+    else cont(result) flattenStreamResultWrite(stream_write(s, mediaType.type));
+
+    cont(result) stream_writeChar(s, '/');
+
+    if(mediaType.subtypeWildcard) cont(result) stream_writeChar(s, '*');
+    else cont(result) flattenStreamResultWrite(stream_write(s, mediaType.subtype));
+
+    // TODO: write parameters
+    // dynar_foreach()
+
+    return result;
+}
 
 bool Http_writeDate(Stream *s) {
     time_t t = time(NULL);

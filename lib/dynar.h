@@ -42,7 +42,7 @@ Dynar(void) makeDynarFixed(usz element, Mem mem, usz len) {
 }
 
 void dynar_init(Dynar(void) *dynar) {
-    if(dynar->mem.s != null) return;
+    if(dynar_isInit(dynar)) return;
     dynar->mem = AllocateBytesC(dynar->alloc, dynar->mem.len);
 }
 

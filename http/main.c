@@ -119,6 +119,7 @@ typedef struct {
     bool error;
 
     Mem data;
+    HttpMediaType mediaType;
     time_t modTime;
     Hash256 hash;
     Mem gzip;
@@ -150,12 +151,82 @@ typedef struct {
     Router *router;
 } Connection;
 
+HttpMediaType getMediaType(String extension) {
+    if(isNull(extension))
+        return mkHttpMediaType("application", "octet-stream");
+
+    if(
+    mem_eq(extension, mkString("jpeg")) ||
+    mem_eq(extension, mkString("jpg")) ||
+    false) {
+        return mkHttpMediaType("image", "jpeg");
+    }
+
+    if(
+    mem_eq(extension, mkString("png")) ||
+    false) {
+        return mkHttpMediaType("image", "png");
+    }
+
+    if(
+    mem_eq(extension, mkString("html")) ||
+    mem_eq(extension, mkString("htm")) ||
+    false) {
+        return mkHttpMediaType("text", "html");
+    }
+
+    if(
+    mem_eq(extension, mkString("css")) ||
+    false) {
+        return mkHttpMediaType("text", "css");
+    }
+
+    if(
+    mem_eq(extension, mkString("json")) ||
+    false) {
+        return mkHttpMediaType("application", "json");
+    }
+
+    if(
+    mem_eq(extension, mkString("pdf")) ||
+    false) {
+        return mkHttpMediaType("application", "pdf");
+    }
+
+    // NOTE: as per RFC-2046, text/plain MUST have CRLF as newlines,
+    // but I'm going to ignore that
+    if(
+    mem_eq(extension, mkString("txt")) ||
+    false) {
+        return mkHttpMediaType("text", "plain");
+    }
+
+    return mkHttpMediaType("application", "octet-stream");
+}
+
 time_t getFileModTime(String path) {
     struct stat s = {0};
     int result = stat(fixchar path.s, &s);
 
     if(result != 0) return 0;
     return s.st_mtime;
+}
+
+String getFileExtension(String path) {
+    usz i = 0;
+    bool foundPeriod = false;
+    for(i = path.len - 1; true /*|| i >= 0*/; i--) {
+        if(i == path.len - 1 && path.s[i] == '.') break;
+        if(path.s[i] == '/') break;
+        if(path.s[i] == '.') {
+            foundPeriod = true;
+            break;
+        }
+        if(i == 0) break;
+    }
+
+    if(!foundPeriod) return memnull;
+    return memIndex(path, i + 1);
 }
 
 // TODO: we probably need a getFileStream(), but I'm not sure how to
@@ -179,8 +250,12 @@ File getFile(String path, Alloc *alloc) {
         return none(File);
     }
 
+    String extension = getFileExtension(path);
+    HttpMediaType mediaType = getMediaType(extension);
+
     return (File){
         .data = data,
+        .mediaType = mediaType,
         .modTime = s.st_mtime,
     };
 }
@@ -445,6 +520,19 @@ bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) Placeholder_AddContentLength(context, content.len);
     cont(result) Http_writeCRLF(context->s);
     cont(result) flattenStreamResultWrite(stream_write(context->s, content));
+    return result;
+}
+
+bool Placeholder_AddContentType(RouteContext *context, HttpMediaType mediaType) {
+    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Type: ")));
+    cont(result) Http_writeMediaType(context->s, mediaType);
+    cont(result) Http_writeCRLF(context->s);
+    return result;
+}
+
+bool Placeholder_AddFile(RouteContext *context, File file) {
+    pure(result) Placeholder_AddContentType(context, file.mediaType);
+    cont(result) Placeholder_AddContent(context, file.data);
     return result;
 }
 
@@ -907,7 +995,7 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddContent(context, file.data);
+    cont(result) Placeholder_AddFile(context, file);
     // Stream fileStream = mkStreamStr(file.data);
     // Dynar(HttpTransferCoding) codings = mkDynar(HttpTransferCoding);
     // cont(result) Placeholder_AddContentStream(context, &fileStream, &codings);
@@ -922,7 +1010,7 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    cont(result) Placeholder_AddContent(context, file.data);
+    cont(result) Placeholder_AddFile(context, file);
 
     return result;
 })
