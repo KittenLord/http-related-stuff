@@ -152,54 +152,22 @@ typedef struct {
 } Connection;
 
 HttpMediaType getMediaType(String extension) {
-    if(isNull(extension))
-        return mkHttpMediaType("application", "octet-stream");
+    if(isNull(extension)) return mkHttpMediaType("application", "octet-stream");
 
-    if(
-    mem_eq(extension, mkString("jpeg")) ||
-    mem_eq(extension, mkString("jpg")) ||
-    false) {
-        return mkHttpMediaType("image", "jpeg");
-    }
-
-    if(
-    mem_eq(extension, mkString("png")) ||
-    false) {
-        return mkHttpMediaType("image", "png");
-    }
-
-    if(
-    mem_eq(extension, mkString("html")) ||
-    mem_eq(extension, mkString("htm")) ||
-    false) {
-        return mkHttpMediaType("text", "html");
-    }
-
-    if(
-    mem_eq(extension, mkString("css")) ||
-    false) {
-        return mkHttpMediaType("text", "css");
-    }
-
-    if(
-    mem_eq(extension, mkString("json")) ||
-    false) {
-        return mkHttpMediaType("application", "json");
-    }
-
-    if(
-    mem_eq(extension, mkString("pdf")) ||
-    false) {
-        return mkHttpMediaType("application", "pdf");
-    }
+#define Ext(s) mem_eq(extension, mkString(s)) ||
+#define MType(s, b, c) if(s false) { return mkHttpMediaType((b), (c)); }
+    MType(Ext("jpeg") Ext("jpg"), "image", "jpeg")
+    MType(Ext("png"), "image", "png")
+    MType(Ext("html") Ext("htm"), "text", "html")
+    MType(Ext("css"), "text", "css")
+    MType(Ext("json"), "application", "json")
+    MType(Ext("pdf"), "application", "pdf")
 
     // NOTE: as per RFC-2046, text/plain MUST have CRLF as newlines,
     // but I'm going to ignore that
-    if(
-    mem_eq(extension, mkString("txt")) ||
-    false) {
-        return mkHttpMediaType("text", "plain");
-    }
+    MType(Ext("txt"), "text", "plain")
+#undef MType
+#undef Ext
 
     return mkHttpMediaType("application", "octet-stream");
 }
