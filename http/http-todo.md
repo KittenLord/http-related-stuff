@@ -36,7 +36,7 @@ Server
 - [ ] Send ETag if possible
 - [ ] Support GET and HEAD, can list allowed methods for a resource in Allow header
 - [x] Respond 501 if unrecognized/unimplemented method
-- [ ] Respond 405 if recognized method, but unsupported/unallowed
+- [x] Respond 405 if recognized method, but unsupported/unallowed, send Allow with allowed methods
 - [ ] Disable unsafe query behavior for safe methods
 - [ ] Respond 201 and Location header if resources were created after a POST
 - [ ] Respond 303 if identical result of POST already exists elsewhere

@@ -48,6 +48,7 @@
 #define CONNECT         (1 << HTTP_CONNECT)
 #define OPTIONS         (1 << HTTP_OPTIONS)
 #define TRACE           (1 << HTTP_TRACE)
+#define ALL             u64max
 typedef u64 HttpMethodMask;
 
 typedef struct RouteContext RouteContext;
@@ -72,8 +73,15 @@ typedef struct {
 #define mkHandler(a) mkHandlerArg((a), memnull)
 #define Handle(c, h) ((h).callback((c), (h).argument))
 
+typedef enum {
+    ROUTE_ERR_NONE,
+
+    ROUTE_ERR_FOUND_URI,
+} RouteError;
+
 typedef struct {
     bool error;
+    RouteError errmsg;
 
     HttpMethodMask methodMask;
 
@@ -99,11 +107,12 @@ struct RouteContext {
     Router *mainRouter;
     Router *lastRouter;
 
-    // Absent if success
+    // Present if error
     HttpError error;
     HttpStatusCode statusCode;
+    HttpMethodMask methodMask;
 
-    // Absent if error
+    // Present if success
     HttpVersion clientVersion;
     HttpMethod method;
     Map *headers;
@@ -412,6 +421,10 @@ Route getRoute(Router *r, RouteContext *context) {
     Route route = none(Route);
     dynar_foreach(Route, &r->routes) {
         if(!routePathMatches(loop.it.path, context->relatedPath)) continue;
+
+        route.errmsg = ROUTE_ERR_FOUND_URI;
+        route.methodMask |= loop.it.methodMask;
+
         if(!routeMethodMatches(loop.it, context->method)) continue;
         route = loop.it;
         break;
@@ -908,11 +921,21 @@ void *threadRoutine(void *_connection) {
 
         Route route = getRoute(connection.router, &context);
         if(isNone(route)) {
-            context.statusCode = 404;
-            pure(result) Handle(&context, connection.router->handler_routeNotFound);
-            cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
-            if(!result) { goto cleanup; }
-            continue;
+            if(isFail(route, ROUTE_ERR_FOUND_URI)) {
+                context.statusCode = 405;
+                context.methodMask = route.methodMask;
+                pure(result) Handle(&context, connection.router->handler_badRequest);
+                cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
+                if(!result) { goto cleanup; }
+                continue;
+            }
+            else {
+                context.statusCode = 404;
+                pure(result) Handle(&context, connection.router->handler_routeNotFound);
+                cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
+                if(!result) { goto cleanup; }
+                continue;
+            }
         }
 
         bool result = Handle(&context, route.handler);
@@ -1006,6 +1029,7 @@ ROUTER_CALLBACK(printCallback, {
 
 ROUTER_CALLBACK(genericErrorCallback, {
     HttpStatusCode statusCode = context->statusCode;
+    pure(result) Placeholder_StatusLine(context, statusCode);
     String content = mkString("<body><h1>Something very bad has happened</h1></body>");
 
     switch(statusCode) {
@@ -1015,6 +1039,26 @@ ROUTER_CALLBACK(genericErrorCallback, {
             break;
         case 404:
             content = mkString("<html><body><h1>404 Not Found</h1><h2>Sorry we don't have this here</h2></body></html>");
+            break;
+        case 405:
+            cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Accept: ")));
+            bool written = false;
+            for(int i = 0; context->methodMask; i++) {
+                if(i != 0 && context->methodMask & 1) {
+                    MaybeString s = Http_getMethod(i);
+                    if(isJust(s)) {
+                        if(written) {
+                            cont(result) stream_writeChar(context->s, ',');
+                            cont(result) stream_writeChar(context->s, ' ');
+                        }
+                        cont(result) flattenStreamResultWrite(stream_write(context->s, s.value));
+                        written = true;
+                    }
+                }
+                context->methodMask >>= 1;
+            }
+            cont(result) Http_writeCRLF(context->s);
+            content = mkString("<html><body><h1>405 Method Not Allowed</h1><h2>that is a very nuh uh method for this so called resource</h2></body></html>");
             break;
         case 414:
             content = mkString("<html><body><h1>414 URI Too Long</h1><h2>your URI is too long and girthy</h2></body></html>");
@@ -1027,7 +1071,6 @@ ROUTER_CALLBACK(genericErrorCallback, {
             break;
     }
 
-    pure(result) Placeholder_StatusLine(context, statusCode);
     cont(result) Placeholder_AddContent(context, content);
     return result;
 })

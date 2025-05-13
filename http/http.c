@@ -422,6 +422,19 @@ HttpMethod Http_parseMethod(Stream *s) {
     else { return HTTP_CUSTOM; } // TODO: custom method handling
 }
 
+MaybeString Http_getMethod(HttpMethod method) {
+    if(false) {}
+    else if(method == HTTP_GET)         return just(MaybeString, mkString("GET"));
+    else if(method == HTTP_HEAD)        return just(MaybeString, mkString("HEAD"));
+    else if(method == HTTP_POST)        return just(MaybeString, mkString("POST"));
+    else if(method == HTTP_PUT)         return just(MaybeString, mkString("PUT"));
+    else if(method == HTTP_DELETE)      return just(MaybeString, mkString("DELETE"));
+    else if(method == HTTP_CONNECT)     return just(MaybeString, mkString("CONNECT"));
+    else if(method == HTTP_OPTIONS)     return just(MaybeString, mkString("OPTIONS"));
+    else if(method == HTTP_TRACE)       return just(MaybeString, mkString("TRACE"));
+    else return none(MaybeString);
+}
+
 // FIXME: this is going to kill everything if we encounter CR without LF
 bool Http_parseCRLF(Stream *s) {
     MaybeChar c = stream_peekChar(s);
