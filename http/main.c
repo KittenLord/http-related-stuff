@@ -506,6 +506,7 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
                 u64 elen = Sha_endian64(len);
                 Stream elens = mkStreamStr(mkMem(&elen, 8));
                 cont(result) writeBytesToHex(&elens, context->s, false, false);
+                // here we would've put chunk extensions if we were sadists
                 cont(result) Http_writeCRLF(context->s);
                 cont(result) flattenStreamResultWrite(stream_write(context->s, mkMem(buffer, len)));
                 cont(result) Http_writeCRLF(context->s);
@@ -514,6 +515,10 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
             }
 
             cont(result) stream_writeChar(context->s, '0');
+            cont(result) Http_writeCRLF(context->s);
+
+            // here we would've put trailer fields if we were sadists
+
             cont(result) Http_writeCRLF(context->s);
         }
         else if(mem_eq(loop.it.coding, mkString("gzip"))) {
@@ -533,8 +538,6 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
         }
     }
 
-    cont(result) Http_writeCRLF(context->s);
-
     return result;
 }
 
@@ -550,26 +553,34 @@ bool Placeholder_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
     return result;
 }
 
+// TODO: the result type needs to convey error vs empty content
 Mem Placeholder_GetContent(RouteContext *context) {
     bool hasContentLength = map_has(context->headers, mkString("content-length"));
     bool hasTransferEncoding = map_has(context->headers, mkString("transfer-encoding"));
-    if(hasContentLength && hasTransferEncoding) return memnull; // unreachable, caught in threadRoutine
+    // if(hasContentLength && hasTransferEncoding) return memnull; // unreachable, caught in threadRoutine
     if(!hasContentLength && !hasTransferEncoding) return memnull;
+    if(hasTransferEncoding) hasContentLength = false;
 
     if(hasContentLength) {
         HttpH_ContentLength contentLength = memExtract(HttpH_ContentLength, map_get(context->headers, mkString("content-length")));
         if(contentLength.length > CONTENT_LIMIT) return memnull;
         Mem mem = AllocateBytes(contentLength.length);
-        pure(result) flattenStreamResultRead(stream_read(context->s, mem));
-        if(!result) return memnull;
+        ResultRead r = stream_read(context->s, mem);
+        if(r.error || r.partial) return memnull;
         return mem;
     }
     else if(hasTransferEncoding) {
         HttpH_TransferEncoding transferEncoding = memExtract(HttpH_TransferEncoding, map_get(context->headers, mkString("transfer-encoding")));
-        Mem result = memnull;
+
+        Mem mem = memnull;
         while(transferEncoding.codings.len != 0) {
             HttpTransferCoding coding = dynar_peek(HttpTransferCoding, &transferEncoding.codings);
             dynar_pop(HttpTransferCoding, &transferEncoding.codings);
+
+            printf("CODING %.*s\n", (int)coding.coding.len, coding.coding.s);
+
+            printf("RBUFFER\n");
+            write(STDOUT_FILENO, context->s->rbuffer.s, context->s->rbuffer.len);
 
             if(mem_eq(coding.coding, mkString("chunked"))) {
                 StringBuilder sb = mkStringBuilder();
@@ -578,24 +589,67 @@ Mem Placeholder_GetContent(RouteContext *context) {
                 while(true) {
                     u64 chunkLength;
                     pure(result) parseU64FromHex(context->s, &chunkLength, false);
-                    // TODO: parse chunk extensions (WHYYYYYY)
+                    printf("CHUNK %d\n", chunkLength);
+                    printf("RESULT %d\n", result);
+                    
+                    HttpChunkExtensions ext = Http_parseChunkExtensions(context->s, ALLOC);
+                    printf("EXT %d\n", isJust(ext));
+                    if(isNone(ext)) return memnull;
+
                     cont(result) Http_parseCRLF(context->s);
+                    printf("RESULT %d\n", result);
                     if(!result) return memnull;
                     if(chunkLength == 0) { break; } // final chunk
-                    cont(result) stream_dumpInto(&s, context->s, chunkLength, false);
+                    printf("RESULT %d\n", result);
+                    cont(result) stream_dumpInto(context->s, &s, chunkLength, false);
+                    printf("RESULT %d\n", result);
+                    printf("LEN %d\n", sb.len);
                     cont(result) Http_parseCRLF(context->s);
+                    printf("RESULT %d\n", result);
                     if(!result) return memnull;
                 }
 
-                result = sb_build(sb);
+                MaybeChar c = stream_peekChar(context->s);
+                pure(result) isJust(c);
+                if(isJust(c) && c.value == HTTP_CR) {
+                    cont(result) Http_parseCRLF(context->s);
+                }
+                else {
+                    // i fucking hate trailer fields
+                    while(true) {
+                        HttpError result = Http_parseHeaderField(context->s, context->headers);
+                        bool crlf = Http_parseCRLF(context->s);
+                        if(!crlf && result == HTTPERR_SUCCESS) { result = HTTPERR_INVALID_HEADER_FIELD; }
+
+                        if(result != HTTPERR_SUCCESS) {
+                            context->error = result;
+                            context->statusCode = 400;
+                            Handle(context, context->lastRouter->handler_badRequest);
+                            return memnull;
+                        }
+
+                        bool finalCrlf = Http_parseCRLF(&s);
+                        if(finalCrlf) break;
+                    }
+                }
+
+                if(!result) return memnull;
+                mem = sb_build(sb);
             }
+            // NOTE: I wanted to test this via curl, but for some reason "Transfer-Encoding: gzip, chunked" couldn't be properly sent
+
+            // else if(mem_eq(coding.coding, mkString("gzip"))) {
+            //     Mem un = Gzip_decompress(mem, ALLOC);
+            //     if(isNull(un)) return memnull;
+            //     mem = un;
+            // }
             else {
                 // unreachable
                 return memnull;
             }
         }
 
-        return result;
+        return mem;
     }
     return memnull;
 }
@@ -669,7 +723,7 @@ void *threadRoutine(void *_connection) {
             if(!crlf && result == HTTPERR_SUCCESS) { result = HTTPERR_INVALID_HEADER_FIELD; }
 
             if(result != HTTPERR_SUCCESS) {
-                context.error = requestLine.error;
+                context.error = result;
 
                 if(result == HTTPERR_INTERNAL_ERROR) {
                     context.statusCode = 500;
@@ -711,17 +765,18 @@ void *threadRoutine(void *_connection) {
         bool containsKeepalive = connectionHeader != null
             ? dynar_containsString(&connectionHeader->connectionOptions, mkString("keep-alive")) : false;
 
-        if(map_has(&headers, mkString("content-length")) && map_has(&headers, mkString("transfer-encoding"))) {
-            context.statusCode = 400;
-            context.error = HTTPERR_BAD_CONTENT_LENGTH;
-            Handle(&context, connection.router->handler_badRequest);
-            goto cleanup;
-        }
+        // if(map_has(&headers, mkString("content-length")) && map_has(&headers, mkString("transfer-encoding"))) {
+        //     context.statusCode = 400;
+        //     context.error = HTTPERR_BAD_CONTENT_LENGTH;
+        //     Handle(&context, connection.router->handler_badRequest);
+        //     goto cleanup;
+        // }
 
         if(map_has(&headers, mkString("transfer-encoding"))) {
             HttpH_TransferEncoding transferEncoding = memExtract(HttpH_TransferEncoding, map_get(&headers, mkString("transfer-encoding")));
             dynar_foreach(HttpTransferCoding, &transferEncoding.codings) {
                 if(loop.index == transferEncoding.codings.len - 1 && !mem_eq(loop.it.coding, mkString("chunked"))) {
+                    printf("BAD A\n");
                     context.statusCode = 400;
                     context.error = HTTPERR_BAD_TRANSFER_CODING;
                     Handle(&context, connection.router->handler_badRequest);
@@ -729,6 +784,7 @@ void *threadRoutine(void *_connection) {
                 }
 
                 if(loop.index != transferEncoding.codings.len - 1 && mem_eq(loop.it.coding, mkString("chunked"))) {
+                    printf("BAD B\n");
                     context.statusCode = 400;
                     context.error = HTTPERR_BAD_TRANSFER_CODING;
                     Handle(&context, connection.router->handler_badRequest);
@@ -737,6 +793,7 @@ void *threadRoutine(void *_connection) {
 
                 if(
                 !mem_eq(loop.it.coding, mkString("chunked")) &&
+                // !mem_eq(loop.it.coding, mkString("gzip")) &&
                 true) {
                     context.statusCode = 501;
                     context.error = HTTPERR_UNKNOWN_TRANSFER_CODING;
@@ -781,6 +838,18 @@ void *threadRoutine(void *_connection) {
             .persist = true,
         });
 
+        MapIter iter = map_iter(&headers);
+        while(!map_iter_end(&iter)) {
+            MapEntry entry = map_iter_next(&iter);
+            HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
+            String value = header.value;
+            value = value;
+
+            printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
+            printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
+            printf("-----------\n");
+        }
+
         Route route = getRoute(connection.router, &context);
         if(isNone(route)) {
             context.statusCode = 404;
@@ -802,17 +871,6 @@ void *threadRoutine(void *_connection) {
         result = flattenStreamResultWrite(stream_writeFlush(&s));
         if(!result) {
             goto cleanup;
-        }
-
-        MapIter iter = map_iter(&headers);
-        while(!map_iter_end(&iter)) {
-            MapEntry entry = map_iter_next(&iter);
-            HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
-            String value = header.value;
-
-            printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
-            printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
-            printf("-----------\n");
         }
 
     } while(connectionPersists);
@@ -849,10 +907,10 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     }
 
     pure(result) Placeholder_StatusLine(context, 200);
-    // cont(result) Placeholder_AddContent(context, file.data);
-    Stream fileStream = mkStreamStr(file.data);
-    Dynar(HttpTransferCoding) codings = mkDynar(HttpTransferCoding);
-    cont(result) Placeholder_AddContentStream(context, &fileStream, &codings);
+    cont(result) Placeholder_AddContent(context, file.data);
+    // Stream fileStream = mkStreamStr(file.data);
+    // Dynar(HttpTransferCoding) codings = mkDynar(HttpTransferCoding);
+    // cont(result) Placeholder_AddContentStream(context, &fileStream, &codings);
 
     return result;
 })
@@ -875,12 +933,28 @@ ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
     return result;
 })
 
+ROUTER_CALLBACK(printCallback, {
+    Mem content = Placeholder_GetContent(context);
+    if(isNull(content)) {
+        printf("CONTENT IS BAD\n");
+    }
+    else {
+        printf("HERE IS YOUR CONTENT\n");
+        write(STDOUT_FILENO, content.s, content.len);
+    }
+
+    pure(result) Placeholder_StatusLine(context, 204);
+    cont(result) Http_writeCRLF(context->s);
+    return result;
+})
+
 ROUTER_CALLBACK(genericErrorCallback, {
     HttpStatusCode statusCode = context->statusCode;
     String content = mkString("<body><h1>Something very bad has happened</h1></body>");
 
     switch(statusCode) {
         case 400:
+            printf("ERROR CODE %d\n", context->error);
             content = mkString("<html><body><h1>400 Bad Request</h1><h2>Your request is very bad (uncool and bad and not cool!) >:(</h2></body></html>");
             break;
         case 404:
@@ -942,6 +1016,7 @@ int main(int argc, char **argv) {
 
     addRoute(&router, GET, mkString("host"), mkString("/files/*"), mkHandlerArg(fileTreeCallback, memPointer(FileTreeRouter, &ftrouter)));
     addRoute(&router, GET, mkString("host"), mkString("/test"), mkHandlerArg(dataCallback, mkString("<body><h1>Test!</h1></body>")));
+    addRoute(&router, POST, mkString("host"), mkString("/print"), mkHandler(printCallback));
 
     int i = 0;
     while(++i < 20) {

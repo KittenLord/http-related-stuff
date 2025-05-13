@@ -141,11 +141,15 @@ bool writeU64ToDecimal(Stream *out, u64 number) {
 bool parseU64FromDecimal(Stream *in, u64 *resultp, bool exhaust) {
     u64 acc = 0;
     MaybeChar c;
+    u8 count;
     while(isJust(c = stream_peekChar(in)) && isDigit(c.value)) {
         if(acc >= u64decmax) return false;
         acc = (acc * 10) + (c.value - '0');
         stream_popChar(in);
+        count += 1;
     }
+
+    if(count == 0) return false;
 
     *resultp = acc;
     if(exhaust && isJust(c)) { return false; }
@@ -160,9 +164,12 @@ bool parseU64FromHex(Stream *in, u64 *resultp, bool exhaust) {
         if(count >= 16) return false; // 16 hex digits -> already 8 bytes
         u8 digit;
         if(!parseU8FromHexDigit(c.value, &digit)) break;
+        stream_popChar(in);
         result = (result << 4) | digit;
         count += 1;
     }
+
+    if(count == 0) return false;
 
     *resultp = result;
     if(exhaust && isJust(c)) return false;

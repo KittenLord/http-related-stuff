@@ -103,10 +103,6 @@ Mem LinearExpandable_alloc(Alloc *a, usz size) {
     // TODO: zero out memory
 
     Alloc_LinearExpadableData *data = a->data;
-    if(size > data->page.len - sizeof(ptr *)) {
-        // TODO: figure out what to do here
-        return memnull;
-    }
 
     if(data->offset + size <= data->page.len) {
         Mem result = mkMem(data->page.s + data->offset, size);
@@ -116,6 +112,13 @@ Mem LinearExpandable_alloc(Alloc *a, usz size) {
     }
     else {
         usz newLen = data->page.len; // TODO: maybe use initialPageSize?
+
+        if(size > data->page.len - sizeof(ptr *)) {
+            // TODO: figure out what to do here
+            // return memnull;
+            newLen = size + sizeof(ptr *) + 16;
+        }
+
         Mem newPage = AllocateBytesC(data->alloc, newLen);
         *((ptr *)newPage.s) = data->page.s;
         data->page = newPage;

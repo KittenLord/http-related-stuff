@@ -236,6 +236,12 @@ ResultRead stream_read(Stream *s, Mem mem) {
     }
 
     if(s->rbufferEnabled) {
+        if(s->rbufferSize - s->rbufferConsumed == 0) {
+            ResultRead result = stream_readRaw(s, s->rbuffer);
+            if(!result.error) { s->rbufferSize = result.read; s->rbufferConsumed = 0; }
+            else { s->rbufferSize = 0; }
+        }
+
         if(mem.len <= s->rbufferSize - s->rbufferConsumed) {
             mem_copy(mem, memIndex(s->rbuffer, s->rbufferConsumed));
             s->rbufferConsumed += mem.len;
@@ -244,9 +250,10 @@ ResultRead stream_read(Stream *s, Mem mem) {
             return mkResultRead(originalMem.len, mem.len);
         }
         else {
-            Mem src = memIndex(s->rbuffer, s->rbufferConsumed);
-            src = memLimit(src, s->rbufferSize - s->rbufferConsumed);
+            Mem src = memLimit(s->rbuffer, s->rbufferSize);
+            src = memIndex(src, s->rbufferConsumed);
             mem_copy(mem, src);
+            s->rbufferConsumed = s->rbufferSize;
 
             mem = memIndex(mem, src.len);
             ResultRead result = stream_readRaw(s, mem);
@@ -255,11 +262,6 @@ ResultRead stream_read(Stream *s, Mem mem) {
             }
 
             usz bytesRead = result.read;
-
-            s->rbufferConsumed = 0;
-            result = stream_readRaw(s, s->rbuffer);
-            if(!result.error) { s->rbufferSize = result.read; }
-            else { s->rbufferSize = 0; }
 
             if(s->rlimitEnabled) { s->rlimit -= src.len + bytesRead; }
             return mkResultRead(originalMem.len, src.len + bytesRead);
@@ -375,7 +377,7 @@ bool stream_dumpInto(Stream *in, Stream *out, u64 max, bool returnFalseOnMax) {
     if(max == 0) max = u64max;
     ResultRead r;
     byte buffer[1024];
-    while((r = stream_read(in, mkMem(buffer, 1024))).read != 0) {
+    while((r = stream_read(in, mkMem(buffer, max > 1024 ? 1024 : max))).read != 0) {
         if(max == 0 && returnFalseOnMax) return false;
         if(max == 0) return true;
         u64 toWrite = r.read;

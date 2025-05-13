@@ -117,6 +117,15 @@ typedef struct {
 } HttpParameters;
 
 typedef struct {
+    String name;
+    MaybeString value;
+} HttpChunkExtension;
+typedef struct {
+    bool error;
+    Dynar(HttpChunkExtension) extensions;
+} HttpChunkExtensions;
+
+typedef struct {
     String coding;
     HttpParameters params;
 } HttpTransferCoding;
@@ -250,6 +259,38 @@ MaybeString Http_parseTokenOrQuotedString(Stream *s, Alloc *alloc) {
     if(isNone(c)) return none(MaybeString);
     if(c.value == '\"') return Http_parseQuotedString(s, alloc);
     else                return Http_parseToken(s, alloc, 0);
+}
+
+HttpChunkExtensions Http_parseChunkExtensions(Stream *s, Alloc *alloc) {
+    Dynar(HttpChunkExtension) extensions = mkDynarA(HttpChunkExtension, alloc);
+
+    MaybeChar c;
+    while(isJust(c = stream_peekChar(s))) {
+        if(c.value != ';') return (HttpChunkExtensions){ .extensions = extensions };
+        stream_popChar(s);
+
+        MaybeString nameM = Http_parseToken(s, alloc, 0);
+        if(isNone(nameM)) return none(HttpChunkExtensions);
+        String name = nameM.value;
+
+        c = stream_peekChar(s);
+        if(isJust(c) && c.value == '=') {
+            stream_popChar(s);
+
+            MaybeString valueM = Http_parseTokenOrQuotedString(s, alloc);
+            if(isNone(valueM)) return none(HttpChunkExtensions);
+            String value = valueM.value;
+
+            HttpChunkExtension ext = { .name = name, .value = just(MaybeString, value) };
+            dynar_append(&extensions, HttpChunkExtension, ext, _);
+        }
+        else {
+            HttpChunkExtension ext = { .name = name, .value = none(MaybeString) };
+            dynar_append(&extensions, HttpChunkExtension, ext, _);
+        }
+    }
+
+    return (HttpChunkExtensions){ .extensions = extensions };
 }
 
 HttpParameters Http_parseParameters(Stream *s, Alloc *alloc) {

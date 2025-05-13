@@ -2,7 +2,7 @@ All
 - [x] Handle Connection close/keep-alive
 - [ ] Invalidate messages with extra CRLFs
 - [x] Respond 400 if invalid request-line
-- [ ] Be able to parse chunked transfer coding
+- [x] Be able to parse chunked transfer coding
 - [x] Apply chunked if any Transfer-Encoding is used as the last one, only once
 - [x] Not send Transfer-Encoding unless >=HTTP/1.1
 - [x] Reject message if CR, LF, NUL within a field value
