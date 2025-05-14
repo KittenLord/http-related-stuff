@@ -159,6 +159,19 @@ typedef struct {
     String value;
 } HttpEntityTag;
 
+bool Http_isMethodSafe(HttpMethod m) {
+    return m == GET
+        || m == HEAD
+        || m == OPTIONS
+        || m == TRACE;
+}
+
+bool Http_isMethodIdempotent(HttpMethod m) {
+    return Http_isMethodSafe(m)
+        || m == PUT
+        || m == DELETE;
+}
+
 bool Http_isObsText(byte c) {
     return c >= 0x80 /* && c <= 0xFF */ ;
 }

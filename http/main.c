@@ -537,7 +537,9 @@ bool Placeholder_AddAllNecessaryHeaders(RouteContext *context) {
 bool Placeholder_AddContent(RouteContext *context, Mem content) {
     pure(result) Placeholder_AddContentLength(context, content.len);
     cont(result) Placeholder_SealHeaders(context);
-    cont(result) flattenStreamResultWrite(stream_write(context->s, content));
+    if(context->method != HEAD) {
+        cont(result) flattenStreamResultWrite(stream_write(context->s, content));
+    }
     return result;
 }
 
@@ -580,8 +582,10 @@ bool Placeholder_AddTransferEncoding(RouteContext *context, Dynar(HttpTransferCo
 bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
     if(context->clientVersion.value < Http_getVersion(1, 1)) {
         pure(result) Placeholder_SealHeaders(context);
-        cont(result) stream_dumpInto(s, context->s, 0, true);
-        context->persist = false;
+        if(context->method != HEAD) {
+            cont(result) stream_dumpInto(s, context->s, 0, true);
+            context->persist = false;
+        }
         return result;
     }
 
@@ -606,6 +610,8 @@ bool Placeholder_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTr
     dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
     cont(result) Placeholder_AddTransferEncoding(context, codings);
     cont(result) Placeholder_SealHeaders(context);
+
+    if(context->method == HEAD) return result;
 
     dynar_foreach(HttpTransferCoding, codings) {
         if(mem_eq(loop.it.coding, mkString("chunked"))) {
@@ -703,23 +709,17 @@ Mem Placeholder_GetContent(RouteContext *context) {
                 while(true) {
                     u64 chunkLength;
                     pure(result) parseU64FromHex(context->s, &chunkLength, false);
-                    printf("CHUNK %d\n", chunkLength);
-                    printf("RESULT %d\n", result);
-                    
                     HttpChunkExtensions ext = Http_parseChunkExtensions(context->s, ALLOC);
-                    printf("EXT %d\n", isJust(ext));
                     if(isNone(ext)) return memnull;
-
                     cont(result) Http_parseCRLF(context->s);
-                    printf("RESULT %d\n", result);
                     if(!result) return memnull;
+
+                    if(chunkLength > CONTENT_LIMIT) return memnull;
+                    if(sb.len + chunkLength > CONTENT_LIMIT) return memnull;
+
                     if(chunkLength == 0) { break; } // final chunk
-                    printf("RESULT %d\n", result);
                     cont(result) stream_dumpInto(context->s, &s, chunkLength, false);
-                    printf("RESULT %d\n", result);
-                    printf("LEN %d\n", sb.len);
                     cont(result) Http_parseCRLF(context->s);
-                    printf("RESULT %d\n", result);
                     if(!result) return memnull;
                 }
 
