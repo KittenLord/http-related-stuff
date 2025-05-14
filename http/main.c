@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <netinet/in.h>
+#include <signal.h>
 
 #include <pthread.h>
 
@@ -959,9 +960,9 @@ void *threadRoutine(void *_connection) {
             String value = header.value;
             value = value;
 
-            printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
-            printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
-            printf("-----------\n");
+            // printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
+            // printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
+            // printf("-----------\n");
         }
 
         Route route = getRoute(connection.router, &context);
@@ -1121,6 +1122,13 @@ ROUTER_CALLBACK(genericErrorCallback, {
 })
 
 int main(int argc, char **argv) {
+    // NOTE: if client dies, we likely encounter an error on
+    // our next read() in threadRoutine. We then goto cleanup and
+    // try to flush the stream via write(), causing SIGPIPE
+    // Not sure why this didn't occur before though, is the parsing
+    // getting too slow?
+    signal(SIGPIPE, SIG_IGN);
+
     argc = argc;
     argv = argv;
 
@@ -1193,7 +1201,6 @@ int main(int argc, char **argv) {
     printf("CLOSE %d\n", closeResult);
 
     ALLOC_POP();
-    close(sock);
 
     return 0;
 }

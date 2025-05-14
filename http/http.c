@@ -168,6 +168,12 @@ typedef struct {
 } HttpH_IfMatch;
 typedef HttpH_IfMatch HttpH_IfNotMatch;
 
+typedef struct {
+    String value;
+    time_t lastModified;
+} HttpH_IfModifiedSince;
+typedef HttpH_IfModifiedSince HttpH_IfUnmodifiedSince;
+
 bool Http_isMethodSafe(HttpMethod m) {
     return m == HTTP_GET
         || m == HTTP_HEAD
@@ -1048,6 +1054,26 @@ HttpError Http_parseHeader_ContentLength(Map *map, String value, HttpH_ContentLe
     return HTTPERR_SUCCESS;
 }
 
+// NOTE: per spec, we should actually ignore presence of multiple, as if there were none at all
+#define Http_generate_parseHeaderModified(name, str) \
+HttpError Http_parseHeader_##name(Map *map, String value, HttpH_##name *already) { \
+    if(already != null) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+    Stream s = mkStreamStr(value); \
+    time_t t; \
+    bool result = Http_parseDate(&s, &t); \
+    if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+    if(isJust(stream_peekChar(&s))) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+    HttpH_##name header = { \
+        .value = value, \
+        .lastModified = t, \
+    }; \
+    map_set(map, mkString(str), memPointer(HttpH_##name, &header)); \
+    return HTTPERR_SUCCESS; \
+}
+
+Http_generate_parseHeaderModified(IfModifiedSince, "if-modified-since")
+Http_generate_parseHeaderModified(IfUnmodifiedSince, "if-unmodified-since")
+
 HttpError Http_parseHeaderField(Stream *s, Map *map) {
     Alloc *alloc = map->alloc;
     
@@ -1079,6 +1105,8 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     header(AcceptEncoding, "accept-encoding")
     header(IfMatch, "if-match")
     header(IfNotMatch, "if-not-match")
+    header(IfModifiedSince, "if-modified-since")
+    header(IfUnmodifiedSince, "if-unmodified-since")
     #undef header
     else {
         HttpH_Unknown header = { .value = fieldValue };
