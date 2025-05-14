@@ -151,6 +151,7 @@ typedef struct {
     Dynar(HttpTransferCoding) codings;
 } HttpH_TransferEncoding;
 typedef HttpH_TransferEncoding HttpH_TE;
+typedef HttpH_TransferEncoding HttpH_AcceptEncoding;
 
 typedef struct {
     bool error;
@@ -158,6 +159,14 @@ typedef struct {
     bool isWeak;
     String value;
 } HttpEntityTag;
+
+typedef struct {
+    String value;
+
+    bool any;
+    Dynar(HttpEntityTag) etags;
+} HttpH_IfMatch;
+typedef HttpH_IfMatch HttpH_IfNotMatch;
 
 bool Http_isMethodSafe(HttpMethod m) {
     return m == HTTP_GET
@@ -973,33 +982,46 @@ Http_generate_parseHeaderList(Connection, "connection", connectionOptions, Strin
     }
 })
 
-Http_generate_parseHeaderList(TE, "te", codings, HttpTransferCoding, {
-    MaybeString coding = Http_parseToken(s, map->alloc, 0);
-    cont(result) !coding.error;
-    if(result) {
-        HttpParameters params = Http_parseParameters(s, map->alloc);
-        cont(result) !params.error;
-
-        value = ((HttpTransferCoding){ .coding = coding.value, .params = params });
-    }
+#define Http_generate_parseHeaderTranfer(_TE, str, onlyQ) \
+Http_generate_parseHeaderList(_TE, str, codings, HttpTransferCoding, { \
+    MaybeString coding = Http_parseToken(s, map->alloc, 0); \
+    cont(result) isJust(coding); \
+    if(result) { \
+        HttpParameters params = Http_parseParameters(s, map->alloc); \
+        cont(result) isJust(params); \
+        if(onlyQ) { cont(result) params.list.len == 0; } \
+        value = ((HttpTransferCoding){ .coding = coding.value, .params = params }); \
+    } \
 })
 
-Http_generate_parseHeaderList(TransferEncoding, "transfer-encoding", codings, HttpTransferCoding, {
-    MaybeString coding = Http_parseToken(s, map->alloc, 0);
-    cont(result) isJust(coding);
-    if(result) {
-        HttpParameters params = Http_parseParameters(s, map->alloc);
-        cont(result) isJust(params);
+Http_generate_parseHeaderTranfer(TE, "te", false)
+Http_generate_parseHeaderTranfer(TransferEncoding, "transfer-encoding", false)
+Http_generate_parseHeaderTranfer(AcceptEncoding, "accept-encoding", true)
 
-        value = ((HttpTransferCoding){ .coding = coding.value, .params = params });
-    }
+#define Http_generate_parseHeaderIfMatch(_IfMatch, str) \
+Http_generate_parseHeaderList(_IfMatch, str, etags, HttpEntityTag, { \
+    if(Http_parseOne(s, '*')) { \
+        cont(result) already == null; \
+        empty = true; \
+        header.any = true; \
+    } \
+    else { \
+        cont(result) !header.any; \
+        HttpEntityTag etag = Http_parseEntityTag(s, ALLOC); \
+        cont(result) isJust(etag); \
+        value = etag; \
+    } \
 })
+
+Http_generate_parseHeaderIfMatch(IfMatch, "if-match")
+Http_generate_parseHeaderIfMatch(IfNotMatch, "if-not-match")
 
 HttpError Http_parseHeader_Host(Map *map, String value, HttpH_Host *already) {
     if(already != null) return HTTPERR_BAD_HOST;
     Stream s = mkStreamStr(value);
     UriAuthority host = Uri_parseAuthorityWithoutUserinfo(&s, map->alloc);
     if(isNone(host)) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+    if(isJust(stream_peekChar(&s))) return HTTPERR_INVALID_HEADER_FIELD_VALUE; // the stream should be exhausted
     HttpH_Host header = {
         .value = value,
         .host = host,
@@ -1054,6 +1076,9 @@ HttpError Http_parseHeaderField(Stream *s, Map *map) {
     header(ContentLength, "content-length")
     header(TE, "te")
     header(TransferEncoding, "transfer-encoding")
+    header(AcceptEncoding, "accept-encoding")
+    header(IfMatch, "if-match")
+    header(IfNotMatch, "if-not-match")
     #undef header
     else {
         HttpH_Unknown header = { .value = fieldValue };
