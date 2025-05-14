@@ -172,6 +172,13 @@ bool Http_isFieldVChar(byte c) {
     return Http_isVChar(c) || Http_isObsText(c);
 }
 
+bool Http_parseOne(Stream *s, byte c) {
+    MaybeChar mc = stream_peekChar(s);
+    if(isNone(mc) || mc.value != c) return false;
+    stream_popChar(s);
+    return true;
+}
+
 HttpEntityTag Http_parseEntityTag(Stream *s, Alloc *alloc) {
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
@@ -270,11 +277,286 @@ bool Http_writeDate(Stream *s, time_t t) {
     return result;
 }
 
+bool Http_parseDate(Stream *s, time_t *t) {
+    byte buffer[32];
+    MaybeChar c;
+    StringBuilder sb = mkStringBuilderMem(mkMem(buffer, 32));
+    for(int i = 0; i < 3; i++) {
+        c = stream_popChar(s);
+        if(isNone(c)) return false;
+        sb_appendChar(&sb, c.value);
+    }
+
+    char *wdays[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    char *months[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+    Mem wdaysBad[] = {
+        mkString("Sunday"),
+        mkString("Monday"),
+        mkString("Tuesday"),
+        mkString("Wednesday"),
+        mkString("Thursday"),
+        mkString("Friday"),
+        mkString("Saturday"),
+    };
+
+    c = stream_peekChar(s);
+    if(isNone(c)) return false;
+    
+    if(false){}
+    // IMF-fixdate
+    else if(c.value == ',') {
+        int wday = 0;
+        for(wday = 0; wday < 7; wday++) {
+            if(mem_eq(sb_build(sb), mkMem(wdays[wday], 3))) break;
+        }
+        if(wday >= 7) return false;
+
+        pure(result) Http_parseOne(s, ',');
+        cont(result) Http_parseOne(s, ' ');
+        if(!result) return false;
+
+        u64 day = 0;
+        cont(result) parseU64FromDecimalFixed(s, &day, 2, false);
+        if(!result) return false;
+        if(day >= 32) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        sb.len = 0;
+        for(int i = 0; i < 3; i++) {
+            c = stream_popChar(s);
+            if(isNone(c)) return false;
+            sb_appendChar(&sb, c.value);
+        }
+        int month = 0;
+        for(month = 0; month < 12; month++) {
+            if(mem_eq(sb_build(sb), mkMem(months[month], 3))) break;
+        }
+        if(month >= 12) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        u64 year = 0;
+        cont(result) parseU64FromDecimalFixed(s, &year, 4, false);
+        if(!result) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        u64 hour = 0;
+        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
+        if(result && hour >= 24) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 minute = 0;
+        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
+        if(result && minute >= 60) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 second = 0;
+        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
+        if(result && second >= 61) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        sb.len = 0;
+        for(int i = 0; i < 3; i++) {
+            c = stream_popChar(s);
+            if(isNone(c)) return false;
+            sb_appendChar(&sb, c.value);
+        }
+
+        if(!mem_eq(sb_build(sb), mkString("GMT"))) return false;
+        if(!result) return false;
+
+        struct tm timeStamp = {
+            .tm_sec = second,
+            .tm_min = minute,
+            .tm_hour = hour,
+            .tm_mday = day,
+            .tm_mon = month,
+            .tm_year = year,
+            .tm_wday = wday,
+        };
+        time_t tr = timegm(&timeStamp);
+        if(tr == -1) return false;
+        *t = tr;
+        return true;
+    }
+    // asctime
+    else if(c.value == ' ') {
+        int wday = 0;
+        for(wday = 0; wday < 7; wday++) {
+            if(mem_eq(sb_build(sb), mkMem(wdays[wday], 3))) break;
+        }
+        if(wday >= 7) return false;
+
+        pure(result) Http_parseOne(s, ' ');
+        if(!result) return false;
+
+        sb.len = 0;
+        for(int i = 0; i < 3; i++) {
+            c = stream_popChar(s);
+            if(isNone(c)) return false;
+            sb_appendChar(&sb, c.value);
+        }
+        int month = 0;
+        for(month = 0; month < 12; month++) {
+            if(mem_eq(sb_build(sb), mkMem(months[month], 3))) break;
+        }
+        if(month >= 12) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+        if(!result) return false;
+
+        c = stream_peekChar(s);
+        if(isNone(c)) return false;
+        if(c.value != ' ' && !isDigit(c.value)) return false;
+        stream_popChar(s);
+        u8 day = c.value == ' ' ? 0 : (c.value - '0') * 10;
+        c = stream_peekChar(s);
+        if(isNone(c)) return false;
+        if(!isDigit(c.value)) return false;
+        stream_popChar(s);
+        day += (c.value - '0');
+        if(day >= 32) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+        if(!result) return false;
+
+        u64 hour = 0;
+        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
+        if(result && hour >= 24) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 minute = 0;
+        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
+        if(result && minute >= 60) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 second = 0;
+        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
+        if(result && second >= 61) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        u64 year = 0;
+        cont(result) parseU64FromDecimalFixed(s, &year, 4, false);
+        if(!result) return false;
+
+        struct tm timeStamp = {
+            .tm_sec = second,
+            .tm_min = minute,
+            .tm_hour = hour,
+            .tm_mday = day,
+            .tm_mon = month,
+            .tm_year = year,
+            .tm_wday = wday,
+        };
+        time_t tr = timegm(&timeStamp);
+        if(tr == -1) return false;
+        *t = tr;
+        return true;
+    }
+    // rfc850-date
+    else if(c.value == 'd' || c.value == 's' || c.value == 'n' || c.value == 'r' || c.value == 'u') {
+        for(int i = 0; i < 10 && isJust(c) && c.value != ','; i++) {
+            sb_appendChar(&sb, c.value);
+            stream_popChar(s);
+            c = stream_peekChar(s);
+        }
+
+        int wday = 0;
+        for(wday = 0; wday < 7; wday++) {
+            if(mem_eq(sb_build(sb), wdaysBad[wday])) break;
+        }
+        if(wday >= 7) return false;
+
+        pure(result) Http_parseOne(s, ',');
+        cont(result) Http_parseOne(s, ' ');
+
+        u64 day = 0;
+        cont(result) parseU64FromDecimalFixed(s, &day, 2, false);
+        if(!result) return false;
+        if(day >= 32) return false;
+
+        cont(result) Http_parseOne(s, '-');
+
+        sb.len = 0;
+        for(int i = 0; i < 3; i++) {
+            c = stream_popChar(s);
+            if(isNone(c)) return false;
+            sb_appendChar(&sb, c.value);
+        }
+        int month = 0;
+        for(month = 0; month < 12; month++) {
+            if(mem_eq(sb_build(sb), mkMem(months[month], 3))) break;
+        }
+        if(month >= 12) return false;
+
+        cont(result) Http_parseOne(s, '-');
+
+        u64 year = 0;
+        cont(result) parseU64FromDecimalFixed(s, &year, 2, false);
+        if(!result) return false;
+        year += 2000;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        u64 hour = 0;
+        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
+        if(result && hour >= 24) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 minute = 0;
+        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
+        if(result && minute >= 60) return false;
+
+        cont(result) Http_parseOne(s, ':');
+
+        u64 second = 0;
+        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
+        if(result && second >= 61) return false;
+
+        cont(result) Http_parseOne(s, ' ');
+
+        sb.len = 0;
+        for(int i = 0; i < 3; i++) {
+            c = stream_popChar(s);
+            if(isNone(c)) return false;
+            sb_appendChar(&sb, c.value);
+        }
+
+        if(!mem_eq(sb_build(sb), mkString("GMT"))) return false;
+        if(!result) return false;
+
+        struct tm timeStamp = {
+            .tm_sec = second,
+            .tm_min = minute,
+            .tm_hour = hour,
+            .tm_mday = day,
+            .tm_mon = month,
+            .tm_year = year,
+            .tm_wday = wday,
+        };
+        time_t tr = timegm(&timeStamp);
+        if(tr == -1) return false;
+        *t = tr;
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
 bool Http_writeDateNow(Stream *s) {
     return Http_writeDate(s, time(NULL));
 }
-
-// TODO: Http_parseDate (not that we actually need it tbh, but for completeness's sake)
 
 u16 Http_getVersion(u8 a, u8 b) {
     return ((u16)a << 8) | (u16)b;
@@ -454,13 +736,6 @@ HttpParameters Http_parseParameters(Stream *s, Alloc *alloc) {
     }
 
     return result;
-}
-
-bool Http_parseOne(Stream *s, byte c) {
-    MaybeChar mc = stream_peekChar(s);
-    if(isNone(mc) || mc.value != c) return false;
-    stream_popChar(s);
-    return true;
 }
 
 HttpMethod Http_parseMethod(Stream *s) {

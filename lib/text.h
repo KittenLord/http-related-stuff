@@ -156,6 +156,23 @@ bool parseU64FromDecimal(Stream *in, u64 *resultp, bool exhaust) {
     return true;
 }
 
+bool parseU64FromDecimalFixed(Stream *in, u64 *resultp, u8 digits, bool exhaust) {
+    u64 result = 0;
+    for(int i = 0; i < digits; i++) {
+        MaybeChar c = stream_peekChar(in);
+        if(isNone(c)) return false;
+        if(!isDigit(c.value)) return false;
+        stream_popChar(in);
+
+        result = (result * 10) + (c.value - '0');
+    }
+
+    if(exhaust && isJust(stream_peekChar(in))) return false;
+
+    *resultp = result;
+    return true;
+}
+
 bool parseU64FromHex(Stream *in, u64 *resultp, bool exhaust) {
     u8 count = 0;
     u64 result = 0;

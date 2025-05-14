@@ -46,6 +46,7 @@ typedef struct {
 
 #define mkStringBuilder() mkStringBuilderCap(32)
 #define mkStringBuilderCap(c) ((StringBuilder){ .alloc = ALLOC, .cap = (c) })
+#define mkStringBuilderMem(m) ((StringBuilder){ .alloc = null, .s = (m), .len = 0, .cap = (m).len, .dontExpand = true })
 
 #define sb_build(sb) ((String){ .s = (sb).s.s, .len = (sb).len })
 

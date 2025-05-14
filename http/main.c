@@ -1124,6 +1124,12 @@ int main(int argc, char **argv) {
     argc = argc;
     argv = argv;
 
+    String date = mkString("Wednesday, 14-May-25 05:32:10 GMT");
+    Stream dates = mkStreamStr(date);
+    time_t t;
+    bool dateb = Http_parseDate(&dates, &t);
+    printf("DATE %d\n", dateb);
+
     ALLOC_PUSH(mkAlloc_LinearExpandable());
 
     int result;

@@ -8,7 +8,7 @@ All
 - [x] Reject message if CR, LF, NUL within a field value
 - [x] Ignore empty list value elements in header values
 - [ ] Able to parse strings and comments (backslash escapes the literal next byte value)
-- [ ] Parse 3 date formats
+- [x] Parse 3 date formats
 - [x] Add Date header (unless you don't have a clock lol)
 - [x] Generate Content-Type
 - [x] Send either Content-Length or Transfer-Encoding with content
