@@ -1,12 +1,10 @@
 #ifndef __LIB_HTTP
 #define __LIB_HTTP
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 
-#include <http/uri.c>
 #include <stream.h>
+#include <http/uri.c>
 #include <map.h>
 #include <text.h>
 
@@ -48,6 +46,18 @@ typedef enum {
 
     HTTP_CUSTOM
 } HttpMethod;
+
+#define GET_NO_HEAD     (1 << HTTP_GET)
+#define HEAD            (1 << HTTP_HEAD)
+#define GET             (GET_NO_HEAD | HEAD)
+#define POST            (1 << HTTP_POST)
+#define PUT             (1 << HTTP_PUT)
+#define DELETE          (1 << HTTP_DELETE)
+#define CONNECT         (1 << HTTP_CONNECT)
+#define OPTIONS         (1 << HTTP_OPTIONS)
+#define TRACE           (1 << HTTP_TRACE)
+#define ALL             u64max
+typedef u64 HttpMethodMask;
 
 typedef struct {
     u8 major;

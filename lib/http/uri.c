@@ -651,7 +651,6 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
 
     c = stream_peekChar(s);
     if(!isNone(c)) {
-        printf("UNEXPECTED CHARACTER: %x\n", c.value);
         return fail(Uri, mkString("Unexpected character at the end of the URI" DEBUG_LOC));
     }
 
