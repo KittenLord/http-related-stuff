@@ -160,16 +160,16 @@ typedef struct {
 } HttpEntityTag;
 
 bool Http_isMethodSafe(HttpMethod m) {
-    return m == GET
-        || m == HEAD
-        || m == OPTIONS
-        || m == TRACE;
+    return m == HTTP_GET
+        || m == HTTP_HEAD
+        || m == HTTP_OPTIONS
+        || m == HTTP_TRACE;
 }
 
 bool Http_isMethodIdempotent(HttpMethod m) {
     return Http_isMethodSafe(m)
-        || m == PUT
-        || m == DELETE;
+        || m == HTTP_PUT
+        || m == HTTP_DELETE;
 }
 
 bool Http_isObsText(byte c) {
