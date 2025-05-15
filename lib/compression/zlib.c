@@ -38,7 +38,8 @@ u32 Zlib_adler32(Mem mem) {
     return result;
 }
 
-Mem Zlib_compress(Mem mem, Alloc *alloc) {
+#define Zlib_compress(m, a) Zlib_compressM(m, true, 512, a)
+Mem Zlib_compressM(Mem mem, bool useMaxLookupRange, usz maxLookupRange, Alloc *alloc) {
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
     Stream out_ = mkStreamSb(&sb);
@@ -70,7 +71,7 @@ Mem Zlib_compress(Mem mem, Alloc *alloc) {
     ResultWrite result = stream_write(out, mkMem((byte *)&zs, sizeof(ZlibStream)));
     if(result.error || result.partial) return memnull;
 
-    Mem compressed = Deflate_compress(mem, false, 0, alloc);
+    Mem compressed = Deflate_compress(mem, useMaxLookupRange, maxLookupRange, alloc);
     if(isNull(compressed)) return memnull;
 
     result = stream_write(out, compressed);

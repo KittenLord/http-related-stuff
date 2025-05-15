@@ -664,6 +664,11 @@ bool Deflate_compress_generateCodeLengths(Dynar(DeflateTreeNode *) *nodes, usz l
 Mem Deflate_compress(Mem raw, bool useMaxLookupRange, usz maxLookupRange, Alloc *alloc) {
     if(!useMaxLookupRange) maxLookupRange = DEFLATE_MAX_DIST;
 
+    // NOTE: turns out this is comically slow with maxLookupRange at max
+    // I should probably learn how LZ77-ish algorithms are supposed to be
+    // implemented, rather than bruteforcing it (works fine for smaller
+    // windows though)
+
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
     Stream outByte = mkStreamSb(&sb);

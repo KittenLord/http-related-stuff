@@ -141,7 +141,7 @@ bool writeU64ToDecimal(Stream *out, u64 number) {
 bool parseU64FromDecimal(Stream *in, u64 *resultp, bool exhaust) {
     u64 acc = 0;
     MaybeChar c;
-    u8 count;
+    u8 count = 0;
     while(isJust(c = stream_peekChar(in)) && isDigit(c.value)) {
         if(acc >= u64decmax) return false;
         acc = (acc * 10) + (c.value - '0');

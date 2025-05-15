@@ -80,7 +80,8 @@ typedef struct __attribute__((packed)) {
     byte operatingSystem;
 } GzipMember;
 
-Mem Gzip_compress(Mem mem, Alloc *alloc) {
+#define Gzip_compress(m, a) Gzip_compressM(m, true, 512, a)
+Mem Gzip_compressM(Mem mem, bool useMaxLookupRange, usz maxLookupRange, Alloc *alloc) {
     StringBuilder sb = mkStringBuilder();
     sb.alloc = alloc;
     Stream out_ = mkStreamSb(&sb);
@@ -101,7 +102,7 @@ Mem Gzip_compress(Mem mem, Alloc *alloc) {
     ResultWrite result = stream_write(out, mkMem((byte *)&member, sizeof(GzipMember)));
     if(result.error || result.partial) return memnull;
 
-    Mem compressed = Deflate_compress(mem, false, 0, ALLOC);
+    Mem compressed = Deflate_compress(mem, useMaxLookupRange, maxLookupRange, ALLOC);
     if(isNull(compressed)) return memnull; 
 
     result = stream_write(out, compressed);
@@ -111,7 +112,7 @@ Mem Gzip_compress(Mem mem, Alloc *alloc) {
     result = stream_write(out, mkMem((byte *)&crc, sizeof(u32)));
     if(result.error || result.partial) return memnull;
 
-    u32 isize = *(u32 *)(&mem.len);
+    u32 isize = mem.len & 0xffffffffL;
     result = stream_write(out, mkMem((byte *)&isize, sizeof(u32)));
     if(result.error || result.partial) return memnull;
 

@@ -148,7 +148,12 @@ RoutePath parseRoutePath(Stream *s, Alloc *alloc) {
 
 bool routePathMatches(RoutePath routePath, UriPath uriPath) {
     usz i = 0;
-    for(i = 0; i < routePath.segments.len && i < uriPath.segments.len; i++) {
+
+    // TODO: still have to figure out last segment being empty
+    usz uriLen = uriPath.segments.len;
+    if(uriLen == 1 && dynar_peek(String, &uriPath.segments).len == 0) uriLen = 0;
+
+    for(i = 0; i < routePath.segments.len && i < uriLen; i++) {
         RoutePathSegment rs = dynar_index(RoutePathSegment, &routePath.segments, i);
         String us = dynar_index(String, &uriPath.segments, i);
 
@@ -160,7 +165,7 @@ bool routePathMatches(RoutePath routePath, UriPath uriPath) {
         }
     }
 
-    if(routePath.segments.len == uriPath.segments.len) return true;
+    if(routePath.segments.len == uriLen) return true;
     if(i < routePath.segments.len && dynar_index(RoutePathSegment, &routePath.segments, i).isWildcard) return true;
     return false;
 }

@@ -43,14 +43,11 @@ int main(int argc, char **argv) {
     FileStorage storage = mkFileStorage(ALLOC_GLOBAL);
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
 
-    AddRouteArg(&router, GET, "/files/*", fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
-    AddRouteArg(&router, GET, "/test", dataCallback, mkString("<body><h1>Test!</h1></body>"));
-    AddRoute(&router, POST, "/print", printCallback);
+    AddRouteArg(&router, GET,  "/files/*", fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
+    AddRouteArg(&router, GET,  "/test",    dataCallback, mkString("<body><h1>Test!</h1></body>"));
+    AddRoute   (&router, POST, "/print",   printCallback);
 
-    Coil_Start(sock, &router);
-
-    int closeResult = close(sock);
-    printf("CLOSE %d\n", closeResult);
+    bool result = Coil_Run(sock, &router);
 
     ALLOC_POP();
 

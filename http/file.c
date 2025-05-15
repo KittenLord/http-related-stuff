@@ -94,7 +94,6 @@ String getFileExtension(String path) {
 // handle close() of the fd
 
 File getFile(String path, Alloc *alloc) {
-    printf("GET FILE\n");
     struct stat s = {0};
     int result = stat(fixchar path.s, &s);
     if(result != 0) return none(File);

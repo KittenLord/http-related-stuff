@@ -320,6 +320,8 @@ typedef struct {
 } Connection;
 
 void *threadRoutine(void *_connection) {
+    printf("NEW CONNECTION\n");
+
     Connection connection = *(Connection *)_connection;
     Free(_connection);
 
@@ -570,11 +572,6 @@ bool name(RouteContext *context, String arg) { context = context; arg = arg; { b
 #define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
 bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = (argty *)arg.s; { body; } }
 
-ROUTER_CALLBACK(testCallback, {
-    printf("helo\n");
-    return false;
-})
-
 ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     File file = getFileTree(fileTree, context->relatedPath);
     if(isNone(file)) {
@@ -711,7 +708,7 @@ Router mkRouter() {
     return router;
 }
 
-void Coil_Start(int sock, Router *router) {
+bool Coil_Run(int sock, Router *router) {
     while(true) {
         struct sockaddr_in caddr = {0};
         socklen_t caddrLen = 0;
@@ -734,6 +731,11 @@ void Coil_Start(int sock, Router *router) {
         result = pthread_attr_destroy(&threadAttr);
         if(result) {}
     }
+
+    int closeResult = close(sock);
+    printf("CLOSE %d\n", closeResult);
+
+    return true;
 }
 
 #endif // __LIB_COIL
