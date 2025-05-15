@@ -90,6 +90,10 @@ bool Coil_AddContent(RouteContext *context, Mem content) {
 bool Coil_AddContentType(RouteContext *context, HttpMediaType mediaType) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Type: ")));
     cont(result) Http_writeMediaType(context->s, mediaType);
+
+    // TODO: make this less bad
+    cont(result) flattenStreamResultWrite(stream_write(context->s, mkString(";charset=utf-8")));
+
     cont(result) Http_writeCRLF(context->s);
     return result;
 }

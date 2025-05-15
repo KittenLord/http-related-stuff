@@ -51,14 +51,19 @@ HttpMediaType getMediaType(String extension) {
 #define MType(s, b, c) if(s false) { return mkHttpMediaType((b), (c)); }
     MType(Ext("jpeg") Ext("jpg"), "image", "jpeg")
     MType(Ext("png"), "image", "png")
-    MType(Ext("html") Ext("htm"), "text", "html")
-    MType(Ext("css"), "text", "css")
-    MType(Ext("json"), "application", "json")
-    MType(Ext("pdf"), "application", "pdf")
 
     // NOTE: as per RFC-2046, text/plain MUST have CRLF as newlines,
     // but I'm going to ignore that
     MType(Ext("txt"), "text", "plain")
+    MType(Ext("js"), "text", "javascript")
+    MType(Ext("html") Ext("htm"), "text", "html")
+    MType(Ext("css"), "text", "css")
+
+    MType(Ext("ttf"), "font", "ttf")
+    MType(Ext("otf"), "font", "otf")
+
+    MType(Ext("json"), "application", "json")
+    MType(Ext("pdf"), "application", "pdf")
 #undef MType
 #undef Ext
 
