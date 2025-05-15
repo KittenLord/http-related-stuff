@@ -70,6 +70,7 @@ struct RouteContext {
     Map *headers;
     UriPath originalPath;
     UriPath relatedPath;
+    String query;
     bool persist;
     bool sealedStatus;
     bool sealedHeaders;

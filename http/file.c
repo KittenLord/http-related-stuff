@@ -58,6 +58,7 @@ HttpMediaType getMediaType(String extension) {
     MType(Ext("js"), "text", "javascript")
     MType(Ext("html") Ext("htm"), "text", "html")
     MType(Ext("css"), "text", "css")
+    MType(Ext("md"), "text", "markdown")
 
     MType(Ext("ttf"), "font", "ttf")
     MType(Ext("otf"), "font", "otf")

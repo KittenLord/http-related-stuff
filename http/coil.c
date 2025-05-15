@@ -507,6 +507,8 @@ void *threadRoutine(void *_connection) {
             .lastRouter = connection.router,
 
             .persist = true,
+
+            .query = requestLine.target.query,
         });
 
         MapIter iter = map_iter(&headers);
@@ -567,16 +569,16 @@ cleanup:
     return null;
 }
 
-#define ROUTER_CALLBACK(name, body) \
+#define CoilCallback(name, body) \
 bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body; } }
 
-#define ROUTER_CALLBACK_STRING_ARG(name, arg, body) \
+#define CoilCallbackStr(name, arg, body) \
 bool name(RouteContext *context, String arg) { context = context; arg = arg; { body; } }
 
-#define ROUTER_CALLBACK_ARG(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = (argty *)arg.s; { body; } }
+#define CoilCallbackArg(name, argty, argname, body) \
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = memExtractPtr(argty, arg.s); { body; } }
 
-ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
+CoilCallbackArg(CoilCB_fileTree, FileTreeRouter, fileTree, {
     File file = getFileTree(fileTree, context->relatedPath);
     if(isNone(file)) {
         return Coil_NotFound(context);
@@ -591,7 +593,7 @@ ROUTER_CALLBACK_ARG(fileTreeCallback, FileTreeRouter, fileTree, {
     return result;
 })
 
-ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
+CoilCallbackStr(CoilCB_file, filePath, {
     File file = getFile(filePath, ALLOC);
     if(isNone(file)) {
         return Coil_NotFound(context);
@@ -603,28 +605,28 @@ ROUTER_CALLBACK_STRING_ARG(fileCallback, filePath, {
     return result;
 })
 
-ROUTER_CALLBACK_STRING_ARG(dataCallback, data, {
+CoilCallbackStr(CoilCB_data, data, {
     pure(result) Coil_StatusLine(context, 200);
     cont(result) Coil_AddContent(context, data);
     return result;
 })
 
-ROUTER_CALLBACK(printCallback, {
-    Mem content = Coil_GetContent(context);
-    if(isNull(content)) {
-        printf("CONTENT IS BAD\n");
-    }
-    else {
-        printf("HERE IS YOUR CONTENT\n");
-        write(STDOUT_FILENO, content.s, content.len);
-    }
+// CoilCallback(printCallback, {
+//     Mem content = Coil_GetContent(context);
+//     if(isNull(content)) {
+//         printf("CONTENT IS BAD\n");
+//     }
+//     else {
+//         printf("HERE IS YOUR CONTENT\n");
+//         write(STDOUT_FILENO, content.s, content.len);
+//     }
+//
+//     pure(result) Coil_StatusLine(context, 204);
+//     cont(result) Http_writeCRLF(context->s);
+//     return result;
+// })
 
-    pure(result) Coil_StatusLine(context, 204);
-    cont(result) Http_writeCRLF(context->s);
-    return result;
-})
-
-ROUTER_CALLBACK(genericErrorCallback, {
+CoilCallback(CoilCB_error, {
     HttpStatusCode statusCode = context->statusCode;
     pure(result) Coil_StatusLine(context, statusCode);
     String content = mkString("<body><h1>Something very bad has happened</h1></body>");
@@ -704,10 +706,10 @@ Router mkRouter() {
         .alloc = ALLOC,
         .routes = mkDynar(Route),
 
-        .handler_routeNotFound  = mkHandler(genericErrorCallback),
-        .handler_internalError  = mkHandler(genericErrorCallback),
-        .handler_badRequest     = mkHandler(genericErrorCallback),
-        .handler_notImplemented = mkHandler(genericErrorCallback),
+        .handler_routeNotFound  = mkHandler(CoilCB_error),
+        .handler_internalError  = mkHandler(CoilCB_error),
+        .handler_badRequest     = mkHandler(CoilCB_error),
+        .handler_notImplemented = mkHandler(CoilCB_error),
     };
     return router;
 }

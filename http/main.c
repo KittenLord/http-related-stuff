@@ -43,8 +43,8 @@ int main(int argc, char **argv) {
     FileStorage storage = mkFileStorage(ALLOC_GLOBAL);
     FileTreeRouter ftrouter = mkFileTreeRouter(mkString("./dir"), &storage);
 
-    AddRouteArg(&router, GET,  "/files/*", fileTreeCallback, memPointer(FileTreeRouter, &ftrouter));
-    AddRouteArg(&router, GET,  "/test",    dataCallback, mkString("<body><h1>Test!</h1></body>"));
+    AddRouteArg(&router, GET,  "/files/*", CoilCB_fileTree, memPointer(FileTreeRouter, &ftrouter));
+    AddRouteArg(&router, GET,  "/test",    CoilCB_data, mkString("<body><h1>Test!</h1></body>"));
     AddRoute   (&router, POST, "/print",   printCallback);
 
     bool result = Coil_Run(sock, &router);
