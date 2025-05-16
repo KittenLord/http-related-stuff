@@ -30,14 +30,10 @@ int main() {
 
             mkJsonKV("array") {
                 mkJsonArray {
-                    mkJsonElement {
-                        mkJsonString("a");
-                    }
-                    mkJsonElement {
-                        mkJsonString("b");
-                    }
-                    mkJsonElement {
-                        mkJsonString("c");
+                    for(int i = 0; i < 5; i++) {
+                        mkJsonElement {
+                            mkJsonString("a");
+                        }
                     }
                 }
             }

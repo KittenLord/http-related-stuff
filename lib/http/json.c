@@ -625,15 +625,23 @@ for(bool ___once = true; ___once; ___once = false)
 dynar_append(&XRES->array.items, JsonValue, ((JsonValue){}), _) \
 for(JsonValue *___temp = XRES, *XRES = &dynar_peek(JsonValue, &___temp->array.items); XRES != null; XRES = null)
 
-#define mkJsonKV(s) \
-dynar_append(&XRES->object.items, JsonKeyValue, ((JsonKeyValue){ .key = mkString(s) }), _) \
+#define mkJsonKVL(s) \
+dynar_append(&XRES->object.items, JsonKeyValue, ((JsonKeyValue){ .key = (s) }), _) \
 for(JsonValue *___temp = XRES, *XRES = &dynar_peek(JsonKeyValue, &___temp->object.items).value; XRES != null; XRES = null)
+#define mkJsonKV(s) mkJsonKVL(mkString(s))
 
-#define mkJsonString(s) \
-*XRES = ((JsonValue){ .type = JSON_STRING, .string = mkString(s) });
+#define mkJsonStringL(s) \
+*XRES = ((JsonValue){ .type = JSON_STRING, .string = (s) });
+#define mkJsonString(s) mkJsonStringL(mkString(s))
 
 #define mkJsonNumber(n) \
 *XRES = ((JsonValue){ .type = JSON_NUMBER, .number = (n), .fnumber = (n) });
+
+#define mkJsonBool(b) \
+*XRES = ((JsonValue){ .type = JSON_BOOL, .boolean = (b) });
+
+#define mkJsonNull \
+*XRES = ((JsonValue){ .type = JSON_NULL });
 
 #undef XRES
 
