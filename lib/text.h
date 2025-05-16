@@ -32,6 +32,10 @@ u8 alphabet_english[26] = {
     'u', 'v', 'w', 'x', 'y', 'z',
 };
 
+bool isWS(byte c) {
+    return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+}
+
 bool isDigit(byte c) {
     return c >= '0' && c <= '9';
 }
@@ -191,6 +195,67 @@ bool parseU64FromHex(Stream *in, u64 *resultp, bool exhaust) {
     *resultp = result;
     if(exhaust && isJust(c)) return false;
     return true;
+}
+
+bool parseOne(Stream *in, byte ch) {
+    MaybeChar c = stream_peekChar(in);
+    if(isNone(c) || c.value != ch) return false;
+    stream_popChar(in);
+    return true;
+}
+
+// NOTE: how do you name this to indicate ASCII
+String trimString(String base) {
+    usz i;
+    for(i = 0; i < base.len; i++) {
+        if(!isWS(base.s[i])) break;
+    }
+
+    usz start = i;
+
+    for(i = base.len - 1; true /*|| i >= 0*/; i--) {
+        if(isWS(base.s[i]) && i == 0) break;
+        if(isWS(base.s[i])) continue;
+
+        i++;
+        break;
+    }
+
+    usz end = i;
+
+    if(start == end) return memnull;
+    base = memLimit(base, end);
+    base = memIndex(base, start);
+    return base;
+}
+
+typedef struct {
+    String lhs;
+    usz split;
+    String rhs;
+} StringSplit;
+
+StringSplit splitLeft(String s, byte c) {
+    usz i;
+    for(i = 0; i < s.len; i++) {
+        if(s.s[i] == c) break;
+    }
+
+    // if(i == s.len) return ((StringSplit){ .lhs = s, .split = i, .rhs = memnull });
+    return ((StringSplit){ .lhs = memLimit(s, i), .split = i, .rhs = memIndex(s, i + 1) });
+}
+
+Dynar(String) split(String s, byte c, bool includeEmpty) {
+    Dynar(String) dynar = mkDynar(String);
+    while(s.len != 0) {
+        StringSplit ss = splitLeft(s, c);
+        if(includeEmpty || ss.lhs.len != 0) {
+            dynar_append(&dynar, String, ss.lhs, _);
+        }
+
+        s = ss.rhs;
+    }
+    return dynar;
 }
 
 #endif // __LIB_TEXT
