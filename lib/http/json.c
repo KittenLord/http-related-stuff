@@ -15,10 +15,19 @@
 
 #include <types.h>
 #include <stream.h>
+#include <dynar.h>
 
-typedef struct JsonObject JsonObject;
-typedef struct JsonArray JsonArray;
 typedef struct JsonValue JsonValue;
+typedef struct JsonKeyValue JsonKeyValue;
+
+typedef struct {
+    Dynar(JsonKeyValue) items;
+} JsonObject;
+
+typedef struct {
+    Dynar(JsonValue) items;
+} JsonArray;
+
 typedef u8 JsonValueType;
 #define JSON_NULL 0
 #define JSON_STRING 1
@@ -38,65 +47,16 @@ struct JsonValue {
             i64 number;
             f64 fnumber;
         };
-        JsonObject *object;
-        JsonArray *array;
+        JsonObject object;
+        JsonArray array;
         bool boolean;
     };
 };
 
-typedef struct JsonKeyValue JsonKeyValue;
 struct JsonKeyValue {
     String key;
     JsonValue value;
-
-    JsonKeyValue *next;
 };
-
-typedef struct JsonArrayElement JsonArrayElement;
-struct JsonArrayElement {
-    JsonValue value;
-
-    JsonArrayElement *next;
-};
-
-struct JsonObject {
-    JsonKeyValue *items;
-    usz length;
-};
-
-struct JsonArray {
-    JsonArrayElement *items;
-    usz length;
-};
-
-bool JSON_isWhitespace(rune r);
-bool JSON_isControl(rune r);
-bool JSON_isAlpha(rune r);
-bool JSON_startNumber(rune r);
-bool JSON_isDigit(rune r);
-
-MaybeRune JSON_popWhitespace(Stream *s);
-String JSON_parseIdentifier(Stream *s, Alloc *alloc);
-
-JsonValue JSON_parseNumber(Stream *s);
-JsonValue JSON_parseObject(Stream *s, Alloc *alloc);
-JsonValue JSON_parseArray(Stream *s, Alloc *alloc);
-JsonValue JSON_parseString(Stream *s, Alloc *alloc);
-JsonValue JSON_parseValue(Stream *s, Alloc *alloc);
-
-JsonValue JSON_parse(Stream *s, Alloc *alloc);
-
-bool JSON_serializeString(String string, Stream *s);
-bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent);
-bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent);
-bool JSON_serializeNull(JsonValue value, Stream *s);
-bool JSON_serializeBool(JsonValue value, Stream *s);
-bool JSON_serializeNumber(JsonValue value, Stream *s);
-bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent);
-
-bool JSON_serialize(JsonValue value, Stream *s, bool doIndent);
-
-
 
 bool JSON_isWhitespace(rune r) {
     return r == ' ' || r == '\t' || r == '\n' || r == '\r';
@@ -127,6 +87,8 @@ MaybeRune JSON_popWhitespace(Stream *s) {
     }
     return r;
 }
+
+JsonValue JSON_parseValue(Stream *s, Alloc *alloc);
 
 String JSON_parseIdentifier(Stream *s, Alloc *alloc) {
     StringBuilder sb = mkStringBuilderCap(16);
@@ -264,148 +226,6 @@ JsonValue JSON_parseNumber(Stream *s) {
     return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
 }
 
-JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
-    stream_popRune(s); // pop the opening curly brace
-
-    JsonObject object = {0};
-    JsonKeyValue *last = null;
-
-    MaybeRune r = JSON_popWhitespace(s);
-    while(isJust(r) && r.value != '}') {
-
-        if(isJust(r) && r.value != '\"') {
-            return fail(JsonValue, mkString("Expected a key literal" DEBUG_LOC));
-        }
-
-        JsonValue key = JSON_parseString(s, alloc);
-        if(isNone(key)) return key;
-
-        r = JSON_popWhitespace(s);
-
-        if(isNone(r) || (isJust(r) && r.value != ':')) {
-            return fail(JsonValue, mkString("Expected a colon :" DEBUG_LOC));
-        }
-
-        stream_popRune(s); // pop the colon
-
-        JsonValue value = JSON_parseValue(s, alloc);
-
-        JsonKeyValue keyValue = { .key = key.string, .value = value };
-        JsonKeyValue *pkeyValue = (ptr)AllocateBytesC(alloc, sizeof(JsonKeyValue)).s;
-        *pkeyValue = keyValue;
-
-        object.length++;
-
-        if(last == null) {
-            object.items = pkeyValue;
-            last = pkeyValue;
-        }
-        else {
-            last->next = pkeyValue;
-            last = pkeyValue;
-        }
-
-        r = stream_peekRune(s);
-
-        if(isJust(r) && r.value == ',') {
-            stream_popRune(s); // pop the comma
-
-            r = JSON_popWhitespace(s);
-
-            if(isJust(r) && r.value == '}') {
-                break;
-            }
-        }
-    }
-
-    if(isNone(r)) {
-        if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
-        }
-        else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
-        }
-    }
-
-    if(isJust(r) && r.value == '}') {
-        stream_popRune(s);
-    }
-
-    JsonObject *pobject = (ptr)AllocateBytesC(alloc, sizeof(JsonObject)).s;
-    *pobject = object;
-    JsonValue result = { .type = JSON_OBJECT, .object = pobject };
-    return result;
-}
-
-JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
-    stream_popRune(s); // pop the opening bracket
-
-    JsonArray array = {0};
-    JsonArrayElement *last = null;
-
-    MaybeRune r = JSON_popWhitespace(s);
-    if(isNone(r)) {
-        if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
-        }
-        else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
-        }
-    }
-    while(isJust(r) && r.value != ']') {
-        JsonValue value = JSON_parseValue(s, alloc);
-
-        if(isNone(value)) {
-            return value;
-        }
-
-        array.length++;
-        JsonArrayElement item = { .value = value };
-        JsonArrayElement *pitem = (ptr)AllocateBytesC(alloc, sizeof(JsonArrayElement)).s;
-        *pitem = item;
-
-        if(last == null) {
-            array.items = pitem;
-            last = pitem;
-        }
-        else {
-            last->next = pitem;
-            last = pitem;
-        }
-        
-        r = stream_peekRune(s);
-
-        if(isJust(r) && r.value == ',') {
-            stream_popRune(s); // pop the comma
-
-            r = JSON_popWhitespace(s);
-
-            if(isJust(r) && r.value == ']') {
-                break;
-            }
-        }
-    }
-
-    if(isNone(r)) {
-        if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
-        }
-        else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
-        }
-    }
-
-    if(isJust(r) && r.value == ']') {
-        stream_popRune(s);
-    }
-
-    JsonArray *parray = (ptr)AllocateBytesC(alloc, sizeof(JsonArray)).s;
-    *parray = array;
-
-    JsonValue result = { .type = JSON_ARRAY, .array = parray };
-    return result;
-}
-
 JsonValue JSON_parseString(Stream *s, Alloc *alloc) {
     stream_popRune(s); // pop the double-quote
 
@@ -438,6 +258,119 @@ JsonValue JSON_parseString(Stream *s, Alloc *alloc) {
     }
 
     return fail(JsonValue, mkString("An unexpected error" DEBUG_LOC));
+}
+
+JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
+    stream_popRune(s); // pop the opening curly brace
+
+    JsonObject object = {0};
+    object.items = mkDynarA(JsonKeyValue, alloc);
+
+    MaybeRune r = JSON_popWhitespace(s);
+    while(isJust(r) && r.value != '}') {
+
+        if(isJust(r) && r.value != '\"') {
+            return fail(JsonValue, mkString("Expected a key literal" DEBUG_LOC));
+        }
+
+        JsonValue key = JSON_parseString(s, alloc);
+        if(isNone(key)) return key;
+
+        r = JSON_popWhitespace(s);
+
+        if(isNone(r) || (isJust(r) && r.value != ':')) {
+            return fail(JsonValue, mkString("Expected a colon :" DEBUG_LOC));
+        }
+
+        stream_popRune(s); // pop the colon
+
+        JsonValue value = JSON_parseValue(s, alloc);
+
+        JsonKeyValue keyValue = { .key = key.string, .value = value };
+        dynar_append(&object.items, JsonKeyValue, keyValue, _);
+
+        r = stream_peekRune(s);
+
+        if(isJust(r) && r.value == ',') {
+            stream_popRune(s); // pop the comma
+
+            r = JSON_popWhitespace(s);
+
+            if(isJust(r) && r.value == '}') {
+                break;
+            }
+        }
+    }
+
+    if(isNone(r)) {
+        if(isFail(r, RUNE_EOF)) {
+            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+        }
+        else {
+            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        }
+    }
+
+    if(isJust(r) && r.value == '}') {
+        stream_popRune(s);
+    }
+
+    JsonValue result = { .type = JSON_OBJECT, .object = object };
+    return result;
+}
+
+JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
+    stream_popRune(s); // pop the opening bracket
+
+    JsonArray array = {0};
+    array.items = mkDynarA(JsonValue, alloc);
+
+    MaybeRune r = JSON_popWhitespace(s);
+    if(isNone(r)) {
+        if(isFail(r, RUNE_EOF)) {
+            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+        }
+        else {
+            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        }
+    }
+    while(isJust(r) && r.value != ']') {
+        JsonValue value = JSON_parseValue(s, alloc);
+
+        if(isNone(value)) {
+            return value;
+        }
+
+        dynar_append(&array.items, JsonValue, value, _);
+        
+        r = stream_peekRune(s);
+
+        if(isJust(r) && r.value == ',') {
+            stream_popRune(s); // pop the comma
+
+            r = JSON_popWhitespace(s);
+
+            if(isJust(r) && r.value == ']') {
+                break;
+            }
+        }
+    }
+
+    if(isNone(r)) {
+        if(isFail(r, RUNE_EOF)) {
+            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+        }
+        else {
+            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        }
+    }
+
+    if(isJust(r) && r.value == ']') {
+        stream_popRune(s);
+    }
+
+    JsonValue result = { .type = JSON_ARRAY, .array = array };
+    return result;
 }
 
 JsonValue JSON_parseValue(Stream *s, Alloc *alloc) {
@@ -505,6 +438,8 @@ JsonValue JSON_parse(Stream *s, Alloc *alloc) {
     return value;
 }
 
+bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent);
+
 bool JSON_serializeString(String string, Stream *s) {
     Stream str = mkStreamStr(string);
     if(!stream_writeRune(s, '\"')) return false;
@@ -529,109 +464,103 @@ bool JSON_serializeString(String string, Stream *s) {
 bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent) {
     if(value.type != JSON_ARRAY) return false;
 
-    JsonArray array = *value.array;
-    JsonArrayElement *elem = array.items;
+    JsonArray array = value.array;
 
-    bool result = true;
-    result = result && stream_writeRune(s, '[');
+    pure(result) stream_writeRune(s, '[');
 
-    if(array.length == 0) { result = result && stream_writeRune(s, ']'); return result; }
+    if(array.items.len == 0) { result = result && stream_writeRune(s, ']'); return result; }
 
-    if(doIndent) result = result && stream_writeRune(s, '\n');
+    if(doIndent) cont(result) stream_writeRune(s, '\n');
     if(!result) return false;
 
-    while(elem) {
-        for(int i = 0; doIndent && i < indent + 4; i++) {
-            result = result && stream_writeRune(s, ' ');
+    dynar_foreach(JsonValue, &array.items) {
+        for(usz i = 0; doIndent && i < indent + 4; i++) {
+            cont(result) stream_writeRune(s, ' ');
         }
-
-        result = result && JSON_serializeValue(elem->value, s, doIndent, indent + 4);
-
-        if(elem->next) result = result && stream_writeRune(s, ',');
-
-        if(doIndent) result = result && stream_writeRune(s, '\n');
+        cont(result) JSON_serializeValue(loop.it, s, doIndent, indent + 4);
+        if(loop.index != array.items.len - 1) {
+            cont(result) stream_writeRune(s, ',');
+        }
+        if(doIndent) {
+            cont(result) stream_writeRune(s, '\n');
+        }
         if(!result) return false;
-        elem = elem->next;
     }
 
-    for(int i = 0; doIndent && i < indent; i++) {
-        result = result && stream_writeRune(s, ' ');
+    for(usz i = 0; doIndent && i < indent; i++) {
+        cont(result) stream_writeRune(s, ' ');
     }
 
-    result = result && stream_writeRune(s, ']');
+    cont(result) stream_writeRune(s, ']');
     return result;
 }
 
 bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent) {
     if(value.type != JSON_OBJECT) return false;
 
-    JsonObject object = *value.object;
-    JsonKeyValue *kv = object.items;
+    JsonObject object = value.object;
 
-    bool result = true;
-    result = result && stream_writeRune(s, '{');
+    pure(result) stream_writeRune(s, '{');
 
-    if(object.length == 0) { result = result && stream_writeRune(s, '}'); return result; }
+    if(object.items.len == 0) { result = result && stream_writeRune(s, '}'); return result; }
 
-    if(doIndent) result = result && stream_writeRune(s, '\n');
+    if(doIndent) cont(result) stream_writeRune(s, '\n');
     if(!result) return false;
 
-    while(kv) {
-        for(int i = 0; doIndent && i < indent + 4; i++) {
-            result = result && stream_writeRune(s, ' ');
+    dynar_foreach(JsonKeyValue, &object.items) {
+        for(usz i = 0; doIndent && i < indent + 4; i++) {
+            cont(result) stream_writeRune(s, ' ');
         }
 
-        result = result && JSON_serializeString(kv->key, s);
+        cont(result) JSON_serializeString(loop.it.key, s);
 
-        if(doIndent) result = result && stream_writeRune(s, ' ');
-        result = result && stream_writeRune(s, ':');
-        if(doIndent) result = result && stream_writeRune(s, ' ');
+        if(doIndent) cont(result) stream_writeRune(s, ' ');
+        cont(result) stream_writeRune(s, ':');
+        if(doIndent) cont(result) stream_writeRune(s, ' ');
 
-        result = result && JSON_serializeValue(kv->value, s, doIndent, indent + 4);
+        cont(result) JSON_serializeValue(loop.it.value, s, doIndent, indent + 4);
 
-        if(kv->next) result = result && stream_writeRune(s, ',');
+        if(loop.index != object.items.len - 1) cont(result) stream_writeRune(s, ',');
 
-        if(doIndent) result = result && stream_writeRune(s, '\n');
+        if(doIndent) cont(result) stream_writeRune(s, '\n');
         if(!result) return false;
-        kv = kv->next;
     }
 
-    for(int i = 0; doIndent && i < indent; i++) {
-        result = result && stream_writeRune(s, ' ');
+    for(usz i = 0; doIndent && i < indent; i++) {
+        cont(result) stream_writeRune(s, ' ');
     }
 
-    result = result && stream_writeRune(s, '}');
+    cont(result) stream_writeRune(s, '}');
     return result;
 }
 
 bool JSON_serializeNull(JsonValue value, Stream *s) {
     if(value.type != JSON_NULL) return false;
-    bool result = true;
 
-    result = result && stream_writeRune(s, 'n');
-    result = result && stream_writeRune(s, 'u');
-    result = result && stream_writeRune(s, 'l');
-    result = result && stream_writeRune(s, 'l');
+    pure(result) stream_writeRune(s, 'n');
+    cont(result) stream_writeRune(s, 'u');
+    cont(result) stream_writeRune(s, 'l');
+    cont(result) stream_writeRune(s, 'l');
 
     return result;
 }
 
 bool JSON_serializeBool(JsonValue value, Stream *s) {
     if(value.type != JSON_BOOL) return false;
-    bool result = true;
+    pure(result) true;
 
     if(value.boolean) {
-        result = result && stream_writeRune(s, 't');
-        result = result && stream_writeRune(s, 'r');
-        result = result && stream_writeRune(s, 'u');
-        result = result && stream_writeRune(s, 'e');
+        cont(result) stream_writeRune(s, 't');
+        cont(result) stream_writeRune(s, 'r');
+        cont(result) stream_writeRune(s, 'u');
+        cont(result) stream_writeRune(s, 'e');
     }
     else {
-        result = result && stream_writeRune(s, 'f');
-        result = result && stream_writeRune(s, 'a');
-        result = result && stream_writeRune(s, 'l');
-        result = result && stream_writeRune(s, 's');
-        result = result && stream_writeRune(s, 'e');
+        cont(result) stream_writeRune(s, 'f');
+        cont(result) stream_writeRune(s, 'a');
+        cont(result) stream_writeRune(s, 'l');
+        cont(result) stream_writeRune(s, 's');
+        cont(result) stream_writeRune(s, 'e');
     }
 
     return result;
@@ -677,5 +606,35 @@ bool JSON_serialize(JsonValue value, Stream *s, bool doIndent) {
     if(isNone(value)) return false;
     return JSON_serializeValue(value, s, doIndent, 0);
 }
+
+#define XRES ___jsonResult
+
+#define mkJson(finalResult) \
+JsonValue finalResult = {0}; \
+for(JsonValue *XRES = &finalResult; XRES != null; XRES = null)
+
+#define mkJsonObject \
+*XRES = ((JsonValue){ .type = JSON_OBJECT, .object = ((JsonObject){ .items = mkDynar(JsonKeyValue) }) }); \
+for(bool ___once = true; ___once; ___once = false)
+
+#define mkJsonArray \
+*XRES = ((JsonValue){ .type = JSON_ARRAY, .array = ((JsonArray){ .items = mkDynar(JsonValue) }) }); \
+for(bool ___once = true; ___once; ___once = false)
+
+#define mkJsonElement \
+dynar_append(&XRES->array.items, JsonValue, ((JsonValue){}), _) \
+for(JsonValue *___temp = XRES, *XRES = &dynar_peek(JsonValue, &___temp->array.items); XRES != null; XRES = null)
+
+#define mkJsonKV(s) \
+dynar_append(&XRES->object.items, JsonKeyValue, ((JsonKeyValue){ .key = mkString(s) }), _) \
+for(JsonValue *___temp = XRES, *XRES = &dynar_peek(JsonKeyValue, &___temp->object.items).value; XRES != null; XRES = null)
+
+#define mkJsonString(s) \
+*XRES = ((JsonValue){ .type = JSON_STRING, .string = mkString(s) });
+
+#define mkJsonNumber(n) \
+*XRES = ((JsonValue){ .type = JSON_NUMBER, .number = (n), .fnumber = (n) });
+
+#undef XRES
 
 #endif // __LIB_JSON

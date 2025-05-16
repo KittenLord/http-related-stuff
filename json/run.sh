@@ -1,1 +1,1 @@
-gcc ./main.c -o ./../bin/json-testing -I../lib -ggdb -Wall -Wpedantic && ./../bin/json-testing
+gcc --std=gnu99 ./main.c -o ./../bin/json-testing -I../lib -ggdb -Wall -Wextra && ./../bin/json-testing

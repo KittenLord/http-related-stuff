@@ -576,7 +576,7 @@ bool name(RouteContext *context, Mem arg) { context = context; arg = arg; { body
 bool name(RouteContext *context, String arg) { context = context; arg = arg; { body; } }
 
 #define CoilCallbackArg(name, argty, argname, body) \
-bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = memExtractPtr(argty, arg.s); { body; } }
+bool name(RouteContext *context, Mem arg) { context = context; arg = arg; argty *argname = memExtractPtr(argty, arg); { body; } }
 
 CoilCallbackArg(CoilCB_fileTree, FileTreeRouter, fileTree, {
     File file = getFileTree(fileTree, context->relatedPath);
