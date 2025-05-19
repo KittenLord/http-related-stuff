@@ -12,6 +12,12 @@ typedef struct {
 } Hashmap;
 #define HASHMAP(a, b) Hashmap
 
+typedef struct {
+    Hashmap *hm;
+    MapIter currentIter;
+    usz currentIndex;
+} HashmapIter;
+
 #define mkHashmap(_alloc) ((Hashmap){ .alloc = (_alloc) })
 
 // https://github.com/fabiogaluppo/fnv/blob/main/fnv64.hpp
@@ -49,6 +55,43 @@ Map *hm_getMap(Hashmap *hm, Mem key) {
 
     Map *map = &dynar_index(Map, &hm->map, index);
     return map;
+}
+
+HashmapIter hm_iter(Hashmap *hm) {
+    usz index = 0;
+    MapIter iter = map_iter(&dynar_index(Map, &hm->map, index));
+
+    while(index < hm->map.len && map_iter_end(&iter)) {
+        index += 1;
+        if(index < hm->map.len) {
+            iter = map_iter(&dynar_index(Map, &hm->map, index));
+        }
+    }
+
+    return (HashmapIter){
+        .hm = hm,
+        .currentIter = iter,
+        .currentIndex = index,
+    };
+}
+
+MapEntry hm_iter_next(HashmapIter *iter) {
+    MapEntry result = map_iter_next(&iter->currentIter);
+
+    if(map_iter_end(&iter->currentIter)) {
+        do {
+            iter->currentIndex += 1;
+            if(iter->currentIndex < iter->hm->map.len) {
+                iter->currentIter = map_iter(&dynar_index(Map, &iter->hm->map, iter->currentIndex));
+            }
+        } while(iter->currentIndex < iter->hm->map.len && map_iter_end(&iter->currentIter));
+    }
+
+    return result;
+}
+
+bool hm_iter_end(HashmapIter *iter) {
+    return map_iter_end(&iter->currentIter);
 }
 
 void hm_set(Hashmap *hm, Mem key, Mem val) {

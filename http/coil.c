@@ -16,6 +16,11 @@
 #define CONTENT_LIMIT 100000000
 #endif
 
+#define Coil_GetPathMatch(c, s) Coil_GetPathMatchL((c), mkString(s))
+String Coil_GetPathMatchL(RouteContext *context, String segment) {
+    return map_get(context->matches, segment);
+}
+
 bool Coil_AddDate(RouteContext *context) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date: ")));
     cont(result) Http_writeDateNow(context->s);
@@ -499,6 +504,7 @@ void *threadRoutine(void *_connection) {
         // Should I extend the Uri/UriPath structs to include a
         // string representation? I probably should
 
+        Map routeMatches = mkMap();
         context = ((RouteContext){
             .s = &s,
             .clientVersion = requestLine.version,
@@ -514,6 +520,8 @@ void *threadRoutine(void *_connection) {
             .persist = true,
 
             .query = requestLine.target.query,
+
+            .matches = &routeMatches,
         });
 
         MapIter iter = map_iter(&headers);

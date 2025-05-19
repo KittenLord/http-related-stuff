@@ -75,6 +75,7 @@ struct RouteContext {
     bool sealedStatus;
     bool sealedHeaders;
     bool sealedContent;
+    Map *matches;
 };
 
 MaybeString parseRoutePathMatch(Stream *s, Alloc *alloc) {
@@ -190,16 +191,15 @@ Route getRoute(Router *r, RouteContext *context) {
 
     if(isNone(route)) return route;
 
-    // TODO: we've found the route, fill the context
-    // with all pattern matched path segments, chop
-    // off the matched part of the path (for routes
-    // that end with /*), etc
-
     RoutePath routePath = route.path;
     UriPath relatedPath = context->relatedPath;
 
     dynar_foreach(RoutePathSegment, &routePath.segments) {
         if(loop.it.isWildcard) break;
+        if(loop.it.isMatch) {
+            String value = dynar_index(String, &relatedPath.segments, 0);
+            map_set(context->matches, loop.it.value, value);
+        }
         dynar_remove(String, &relatedPath.segments, 0);
     }
 
