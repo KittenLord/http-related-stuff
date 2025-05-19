@@ -104,26 +104,32 @@ File getFile(String path, Alloc *alloc) {
     int result = stat(fixchar path.s, &s);
     if(result != 0) return none(File);
 
-    FILE *file = fopen(fixchar path.s, "r");
-    if(file == null) return none(File);
-    int fd = fileno(file);
-    if(fd == -1) return none(File);
+    File file = none(File);
+
+    FILE *fp = fopen(fixchar path.s, "r");
+    if(fp == null) goto cleanup;
+    int fd = fileno(fp);
+    if(fd == -1) goto cleanup;
 
     Mem data = AllocateBytesC(alloc, s.st_size);
     isz bytesRead = read(fd, data.s, data.len);
     if(bytesRead < 0 || (usz)bytesRead != data.len) {
         FreeC(alloc, data.s);
-        return none(File);
+        goto cleanup;
     }
 
     String extension = getFileExtension(path);
     HttpMediaType mediaType = getMediaType(extension);
 
-    return (File){
+    file = (File){
         .data = data,
         .mediaType = mediaType,
         .modTime = s.st_mtime,
     };
+
+cleanup:
+    if(fp != null) fclose(fp);
+    return file;
 }
 
 // TODO: error checking

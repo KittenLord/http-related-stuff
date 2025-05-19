@@ -214,6 +214,11 @@ bool Coil_NotFound(RouteContext *context) {
     return Handle(context, context->lastRouter->handler_routeNotFound);
 }
 
+bool Coil_InternalError(RouteContext *context) {
+    context->statusCode = 500;
+    return Handle(context, context->lastRouter->handler_internalError);
+}
+
 bool Coil_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
     pure(result) Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
     if  (result) context->sealedStatus = true;
