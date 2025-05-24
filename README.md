@@ -2,6 +2,7 @@
 > This library is far from being done - source code is not
   organized, API has not yet been finalized. That's not even
   mentioning that it's written in C, memory issues are inevitable.
+>
 > Thus, use at your own risk.
 
 # A simple way to set up an HTTP server
@@ -23,8 +24,9 @@ its primitives instead of C ones. This means:
       the `result` is allocated in `alloc`, and `ALLOC` is
       being used as a temporary allocator - use
       `UseAlloc(a, block)` for assigning `ALLOC`
+    - `ALLOC_GLOBAL` == `malloc`
 - Using `stream` API for parsing purposes
-- Using `Dynar(a)` for dynamic array functionality
+- Using `Dynar(a)`/`StringBuilder` for dynamic array functionality
 - Using `rune` whenever UTF-8 handling is needed
 - Using `i8`/`u8`/`usz`/etc
 - Using `pure(result)`/`cont(result)` for chaining operations
