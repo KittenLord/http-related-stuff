@@ -11,7 +11,7 @@
 #define memIndex(m, i) mkMem((m).s + i, (i) >= (m).len ? 0 : (m).len - (i))
 #define memLimit(m, i) mkMem((m).s, (i) > (m).len ? (m).len : (i))
 
-#define memPrintf(m) (m).len, (m).s
+#define memPrintf(m) (int)((m).len), (m).s
 
 bool mem_eq(Mem a, Mem b) {
     if(a.s == null && b.s == null) return true;

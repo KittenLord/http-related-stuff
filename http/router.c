@@ -223,7 +223,7 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
 
 #define AddRouteMem(r, methodMask, path, callback, mem) addRoute((r), (methodMask), mkString("host"), mkString(path), mkHandlerArg((callback), (mem)))
 
-#define AddRouteN(r, methodMask, path, callback) AddRouteMem(r, methodMask, path, callback, memnull)
+#define AddRouteNil(r, methodMask, path, callback) AddRouteMem(r, methodMask, path, callback, memnull)
 #define AddRouteStr(r, methodMask, path, callback, s) AddRouteMem(r, methodMask, path, callback, mkString(s))
 #define AddRoutePtr(r, methodMask, path, callback, ty, ptr) AddRouteMem(r, methodMask, path, callback, memPointer(ty, (ptr)))
 

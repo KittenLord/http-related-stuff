@@ -92,6 +92,11 @@ bool Coil_AddContent(RouteContext *context, Mem content) {
     return result;
 }
 
+bool Coil_NoContent(RouteContext *context) {
+    pure(result) Coil_SealHeaders(context);
+    return result;
+}
+
 bool Coil_AddContentType(RouteContext *context, HttpMediaType mediaType) {
     pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Type: ")));
     cont(result) Http_writeMediaType(context->s, mediaType);
@@ -627,21 +632,6 @@ CoilCallbackStr(CoilCB_data, data, {
     cont(result) Coil_AddContent(context, data);
     return result;
 })
-
-// CoilCallback(printCallback, {
-//     Mem content = Coil_GetContent(context);
-//     if(isNull(content)) {
-//         printf("CONTENT IS BAD\n");
-//     }
-//     else {
-//         printf("HERE IS YOUR CONTENT\n");
-//         write(STDOUT_FILENO, content.s, content.len);
-//     }
-//
-//     pure(result) Coil_StatusLine(context, 204);
-//     cont(result) Http_writeCRLF(context->s);
-//     return result;
-// })
 
 CoilCallback(CoilCB_error, {
     HttpStatusCode statusCode = context->statusCode;

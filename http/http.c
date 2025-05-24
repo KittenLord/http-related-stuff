@@ -56,7 +56,7 @@ typedef enum {
 #define CONNECT         (1 << HTTP_CONNECT)
 #define OPTIONS         (1 << HTTP_OPTIONS)
 #define TRACE           (1 << HTTP_TRACE)
-#define ALL             u64max
+#define ANY             u64max
 typedef u64 HttpMethodMask;
 
 typedef struct {
