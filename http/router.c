@@ -150,12 +150,7 @@ RoutePath parseRoutePath(Stream *s, Alloc *alloc) {
 
 bool routePathMatches(RoutePath routePath, UriPath uriPath) {
     usz i = 0;
-
-    // TODO: still have to figure out last segment being empty
-    usz uriLen = uriPath.segments.len;
-    if(uriLen == 1 && dynar_peek(String, &uriPath.segments).len == 0) uriLen = 0;
-
-    for(i = 0; i < routePath.segments.len && i < uriLen; i++) {
+    for(i = 0; i < routePath.segments.len && i < uriPath.segments.len; i++) {
         RoutePathSegment rs = dynar_index(RoutePathSegment, &routePath.segments, i);
         String us = dynar_index(String, &uriPath.segments, i);
 
@@ -167,7 +162,7 @@ bool routePathMatches(RoutePath routePath, UriPath uriPath) {
         }
     }
 
-    if(routePath.segments.len == uriLen) return true;
+    if(routePath.segments.len == uriPath.segments.len) return true;
     if(i < routePath.segments.len && dynar_index(RoutePathSegment, &routePath.segments, i).isWildcard) return true;
     return false;
 }
@@ -226,7 +221,10 @@ void addRoute(Router *r, HttpMethodMask methodMask, String host, String path, Ro
     return;
 }
 
-#define AddRoute(r, methodMask, path, callback) addRoute((r), (methodMask), mkString("host"), mkString(path), mkHandler((callback)))
-#define AddRouteArg(r, methodMask, path, callback, arg) addRoute((r), (methodMask), mkString("host"), mkString(path), mkHandlerArg((callback), (arg)))
+#define AddRouteMem(r, methodMask, path, callback, mem) addRoute((r), (methodMask), mkString("host"), mkString(path), mkHandlerArg((callback), (mem)))
+
+#define AddRouteN(r, methodMask, path, callback) AddRouteMem(r, methodMask, path, callback, memnull)
+#define AddRouteStr(r, methodMask, path, callback, s) AddRouteMem(r, methodMask, path, callback, mkString(s))
+#define AddRoutePtr(r, methodMask, path, callback, ty, ptr) AddRouteMem(r, methodMask, path, callback, memPointer(ty, (ptr)))
 
 #endif // __LIB_COIL_ROUTER

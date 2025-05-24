@@ -395,6 +395,10 @@ void *threadRoutine(void *_connection) {
             goto cleanup;
         }
 
+        if(requestLine.target.path.segments.len != 0) {
+            if(dynar_peek(String, &requestLine.target.path.segments).len == 0) requestLine.target.path.segments.len -= 1;
+        }
+
         Map headers = mkMap();
 
         // TODO: there should probably be a check that we're being trolled by an infinite stream of headers
@@ -728,6 +732,16 @@ Router mkRouter() {
 }
 
 bool Coil_Run(int sock, Router *router) {
+    // NOTE: if client dies, we likely encounter an error on
+    // our next read() in threadRoutine. We then goto cleanup and
+    // try to flush the stream via write(), causing SIGPIPE
+    struct sigaction sigHandlerNone = {
+        .sa_handler = SIG_IGN,
+    };
+    struct sigaction sigHandlerOld;
+    int result = sigaction(SIGPIPE, &sigHandlerNone, &sigHandlerOld);
+    if(result != 0) return false;
+
     while(true) {
         struct sockaddr_in caddr = {0};
         socklen_t caddrLen = 0;
@@ -750,6 +764,9 @@ bool Coil_Run(int sock, Router *router) {
         result = pthread_attr_destroy(&threadAttr);
         if(result) {}
     }
+
+    result = sigaction(SIGPIPE, &sigHandlerOld, null);
+    if(result != 0) return false;
 
     int closeResult = close(sock);
     printf("CLOSE %d\n", closeResult);

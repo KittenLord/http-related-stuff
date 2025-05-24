@@ -203,7 +203,8 @@ File getFileTree(FileTreeRouter *ftrouter, UriPath subPath) {
     return getFileStorage(filePath, ftrouter->storage);
 }
 
-FileTreeRouter mkFileTreeRouter(String spath, FileStorage *storage) {
+#define mkFileTreeRouter(p, s) mkFileTreeRouterL(mkString(p), s)
+FileTreeRouter mkFileTreeRouterL(String spath, FileStorage *storage) {
     Alloc *alloc = ALLOC;
     Stream s = mkStreamStr(spath);
     UriPath path = Uri_parsePathRootless(&s, alloc);
