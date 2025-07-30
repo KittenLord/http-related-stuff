@@ -779,7 +779,7 @@ bool Coil_Run(int sock, Router *router) {
 
     while(true) {
         struct sockaddr_in caddr = {0};
-        socklen_t caddrLen = 0;
+        socklen_t caddrLen = sizeof(struct sockaddr_in);
         // TODO: figure out if this works for IPv6
         int csock = accept(sock, (struct sockaddr *)&caddr, &caddrLen);
 
