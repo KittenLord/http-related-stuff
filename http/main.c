@@ -1,4 +1,5 @@
 #include "coil.c"
+#include "logging.c"
 
 // Defining callbacks
 CoilCallback(CoilCB_printCallback, {
@@ -21,6 +22,10 @@ CoilCallback(CoilCB_printSegment, {
 })
 
 int main(void) {
+    Log_message(LOG_INFO, mkString("helo"));
+    Log_message(LOG_WARNING, mkString("helo"));
+    Log_message(LOG_ERROR, mkString("helo"));
+
     MaybeSocket sockM = Coil_GetSocket(6969, 128);
     if(isNone(sockM)) return 1;
     int sock = sockM.value;
