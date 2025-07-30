@@ -284,6 +284,13 @@ MaybeChar stream_popChar(Stream *s) {
 
     if(result.error) return fail(MaybeChar, CHAR_ERROR);
     if(result.partial) return fail(MaybeChar, CHAR_EOF);
+
+    if(!s->preservePos) {
+        s->pos++;
+        if(b == '\n') { s->row++; s->lastCol = s->col; s->col = 0; }
+        else          { s->col++; }
+    }
+
     return just(MaybeChar, b);
 }
 

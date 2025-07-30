@@ -17,6 +17,31 @@
 #include <stream.h>
 #include <dynar.h>
 
+typedef enum {
+    JSON_ERROR_SUCCESS,
+    JSON_ERROR_NEVER,
+
+    JSON_ERROR_EOF,
+    JSON_ERROR_INVALID_CHARACTER,
+
+    JSON_ERROR_NUMBER,
+    JSON_ERROR_NUMBER_DECIMAL_POINT,
+    JSON_ERROR_NUMBER_EXPONENT_SIGN,
+    JSON_ERROR_NUMBER_EXPONENT_DIGITS,
+    JSON_ERROR_STRING_CONTROL_CHARACTER,
+    JSON_ERROR_STRING_NOT_TERMINATED,
+    JSON_ERROR_OBJECT_EXPECTED_KEY,
+    JSON_ERROR_OBJECT_EXPECTED_COLON,
+    JSON_ERROR_UNEXPECTED_IDENTIFIER,
+    JSON_ERROR_UNEXPECTED_CHARACTER,
+} JsonErrorCode;
+
+typedef struct {
+    JsonErrorCode code;
+    usz row;
+    usz col;
+} JsonError;
+
 typedef struct JsonValue JsonValue;
 typedef struct JsonKeyValue JsonKeyValue;
 
@@ -38,7 +63,7 @@ typedef u8 JsonValueType;
 #define JSON_FLOAT 6
 struct JsonValue {
     bool error;
-    String errmsg;
+    JsonError errmsg;
 
     JsonValueType type;
     union {
@@ -57,6 +82,8 @@ struct JsonKeyValue {
     String key;
     JsonValue value;
 };
+
+#define mkJsonError(cd, s) ((JsonError){ .code = (cd), .row = (s)->row, .col = (s)->col })
 
 bool JSON_isWhitespace(rune r) {
     return r == ' ' || r == '\t' || r == '\n' || r == '\r';
@@ -128,7 +155,7 @@ JsonValue JSON_parseNumber(Stream *s) {
     }
 
     if(isNone(r)) {
-        return fail(JsonValue, mkString("Couldn't read the full number" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER, s));
     }
 
     if(isJust(r) && r.value != '0') {
@@ -155,7 +182,7 @@ JsonValue JSON_parseNumber(Stream *s) {
         return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
     }
     else if(isNone(r)) {
-        return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER, s));
     }
 
     if(isJust(r) && r.value == '.') {
@@ -174,7 +201,7 @@ JsonValue JSON_parseNumber(Stream *s) {
         }
 
         if(!atLeastOneDigit) {
-            return fail(JsonValue, mkString("No digits after a decimal point" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER_DECIMAL_POINT, s));
         }
     }
 
@@ -185,7 +212,7 @@ JsonValue JSON_parseNumber(Stream *s) {
         return (JsonValue){ .type = type, .number = number, .fnumber = fnumber };
     }
     else if(isNone(r)) {
-        return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER, s));
     }
 
     if(isJust(r) && (r.value == 'e' || r.value == 'E')) {
@@ -194,7 +221,7 @@ JsonValue JSON_parseNumber(Stream *s) {
         r = stream_peekRune(s);
 
         if(isNone(r) || (isJust(r) && r.value != '+' && r.value != '-')) {
-            return fail(JsonValue, mkString("No sign after an exponent identifier" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER_EXPONENT_SIGN, s));
         }
 
         r = stream_popRune(s);
@@ -213,7 +240,7 @@ JsonValue JSON_parseNumber(Stream *s) {
         }
 
         if(!atLeastOneDigit) {
-            return fail(JsonValue, mkString("No digits after an exponent" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_NUMBER_EXPONENT_DIGITS, s));
         }
 
         for(f64 i = 0; i < exponent; i += 1) {
@@ -250,14 +277,14 @@ JsonValue JSON_parseString(Stream *s, Alloc *alloc) {
     }
 
     if(isJust(r) && JSON_isControl(r.value)) {
-        return fail(JsonValue, mkString("A control character within a sequence" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_STRING_CONTROL_CHARACTER, s));
     }
 
     if(isNone(r)) {
-        return fail(JsonValue, mkString("A string has not been terminated" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_STRING_NOT_TERMINATED, s));
     }
 
-    return fail(JsonValue, mkString("An unexpected error" DEBUG_LOC));
+    return fail(JsonValue, mkJsonError(JSON_ERROR_NEVER, s));
 }
 
 JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
@@ -270,7 +297,7 @@ JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
     while(isJust(r) && r.value != '}') {
 
         if(isJust(r) && r.value != '\"') {
-            return fail(JsonValue, mkString("Expected a key literal" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_OBJECT_EXPECTED_KEY, s));
         }
 
         JsonValue key = JSON_parseString(s, alloc);
@@ -279,7 +306,7 @@ JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
         r = JSON_popWhitespace(s);
 
         if(isNone(r) || (isJust(r) && r.value != ':')) {
-            return fail(JsonValue, mkString("Expected a colon :" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_OBJECT_EXPECTED_COLON, s));
         }
 
         stream_popRune(s); // pop the colon
@@ -304,10 +331,10 @@ JsonValue JSON_parseObject(Stream *s, Alloc *alloc) {
 
     if(isNone(r)) {
         if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_EOF, s));
         }
         else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_INVALID_CHARACTER, s));
         }
     }
 
@@ -328,10 +355,10 @@ JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
     MaybeRune r = JSON_popWhitespace(s);
     if(isNone(r)) {
         if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_EOF, s));
         }
         else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_INVALID_CHARACTER, s));
         }
     }
     while(isJust(r) && r.value != ']') {
@@ -358,10 +385,10 @@ JsonValue JSON_parseArray(Stream *s, Alloc *alloc) {
 
     if(isNone(r)) {
         if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_EOF, s));
         }
         else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_INVALID_CHARACTER, s));
         }
     }
 
@@ -377,10 +404,10 @@ JsonValue JSON_parseValue(Stream *s, Alloc *alloc) {
     MaybeRune r = JSON_popWhitespace(s);
     if(isNone(r)) {
         if(isFail(r, RUNE_EOF)) {
-            return fail(JsonValue, mkString("End of file" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_EOF, s));
         }
         else {
-            return fail(JsonValue, mkString("Invalid character" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_INVALID_CHARACTER, s));
         }
     }
 
@@ -406,7 +433,7 @@ JsonValue JSON_parseValue(Stream *s, Alloc *alloc) {
             result = (JsonValue){ .type = JSON_BOOL, .boolean = false };
         }
         else {
-            return fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_UNEXPECTED_IDENTIFIER, s));
         }
     }
     else if(r.value == 'n') {
@@ -415,14 +442,14 @@ JsonValue JSON_parseValue(Stream *s, Alloc *alloc) {
             result = (JsonValue){ .type = JSON_NULL };
         }
         else {
-            return fail(JsonValue, mkString("An unexpected identifier" DEBUG_LOC));
+            return fail(JsonValue, mkJsonError(JSON_ERROR_UNEXPECTED_IDENTIFIER, s));
         }
     }
     else if(JSON_startNumber(r.value)) {
         result = JSON_parseNumber(s);
     }
     else {
-        return fail(JsonValue, mkString("Unexpected character" DEBUG_LOC));
+        return fail(JsonValue, mkJsonError(JSON_ERROR_UNEXPECTED_CHARACTER, s));
     }
 
     JSON_popWhitespace(s);
@@ -434,7 +461,11 @@ JsonValue JSON_parse(Stream *s, Alloc *alloc) {
     JsonValue value = JSON_parseValue(s, alloc);
     if(isNone(value)) return value;
     MaybeRune r = stream_peekRune(s);
-    if(!isFail(r, RUNE_EOF)) return fail(JsonValue, mkString("Unexpected Character"));
+
+    if(!isFail(r, RUNE_EOF)) {
+        return fail(JsonValue, mkJsonError(JSON_ERROR_UNEXPECTED_CHARACTER, s));
+    }
+
     return value;
 }
 

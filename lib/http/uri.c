@@ -11,6 +11,32 @@
 #include <macros.h>
 #include <dynar.h>
 
+typedef enum {
+    URI_ERROR_SUCCESS,
+    URI_ERROR_NEVER,
+
+    URI_ERROR_FAILED_TO_READ,
+    URI_ERROR_INVALID_PERCENT_ENCODING,
+    URI_ERROR_NOT_IMPLEMENTED,
+
+    URI_ERROR_SCHEME_MUST_START_LETTER,
+    URI_ERROR_SCHEME_NO_COLON,
+    URI_ERROR_SEGMENT_MUST_NOT_CONTAIN_COLON,
+    URI_ERROR_SEGMENT_MUST_BE_NON_EMPTY,
+    URI_ERROR_PATH_ROOTLESS_FIRST_SEGMENT_MUST_NON_EMPTY,
+    URI_ERROR_IPV4_0_255,
+    URI_ERROR_IPV4_INVALID,
+    URI_ERROR_REMAINING_CHARACTERS,
+} UriErrorCode;
+
+typedef struct {
+    UriErrorCode code;
+    usz row;
+    usz col;
+} UriError;
+
+#define mkUriError(c, s) ((UriError){ .code = (c), .row = (s)->row, .col = (s)->col })
+
 typedef struct {
     byte a;
     byte b;
@@ -28,7 +54,7 @@ typedef u8 UriHostType;
 #define URI_HOST_REGNAME 3
 typedef struct {
     bool error;
-    String errmsg;
+    UriError errmsg;
 
     UriHostType type;
 
@@ -41,7 +67,7 @@ typedef struct {
 
 typedef struct {
     bool error;
-    String errmsg;
+    UriError errmsg;
 
     bool hasUserInfo;
     String userInfo;
@@ -62,7 +88,7 @@ typedef u8 UriPathType;
 #define URI_PATH_ROOTLESS 4
 typedef struct {
     bool error;
-    String errmsg;
+    UriError errmsg;
 
     UriPathType type;
 
@@ -76,7 +102,7 @@ typedef u8 UriHierarchyPartType;
 #define URI_HIER_ROOTLESS 3
 typedef struct {
     bool error;
-    String errmsg;
+    UriError errmsg;
 
     UriHierarchyPartType type;
 
@@ -89,7 +115,7 @@ typedef struct {
 
 typedef struct {
     bool error;
-    String errmsg;
+    UriError errmsg;
 
     String scheme;
     UriHierarchyPart hierarchyPart;
@@ -227,17 +253,17 @@ String Uri_ipv4ToString(UriIpv4 ip, Alloc *alloc) {
 }
 
 MaybeString Uri_parseScheme(Stream *s, Alloc *alloc) {
-    // TODO: figure out a good approach to this
-    static String error_failedToReadChar = mkString("Failed to read a character" DEBUG_LOC);
-    static String error_firstCharAlpha = mkString("First character of the scheme must be a letter" DEBUG_LOC);
-
     StringBuilder sb = mkStringBuilderCap(16);
     sb.alloc = alloc;
 
     MaybeChar c = stream_peekChar(s);
 
-    if(isNone(c)) return fail(MaybeString, (u64)&error_failedToReadChar);
-    if(isJust(c) && !Uri_isAlpha(c.value)) return fail(MaybeString, (u64)&error_firstCharAlpha);
+    if(isNone(c)) {
+        return fail(MaybeString, URI_ERROR_FAILED_TO_READ);
+    }
+    if(isJust(c) && !Uri_isAlpha(c.value)) {
+        return fail(MaybeString, URI_ERROR_SCHEME_MUST_START_LETTER);
+    }
 
     sb_appendChar(&sb, c.value);
     stream_popChar(s);
@@ -250,7 +276,6 @@ MaybeString Uri_parseScheme(Stream *s, Alloc *alloc) {
     return just(MaybeString, sb_build(sb));
 }
 
-#define PCHAR_INVALID_PERCENT_ENCODING 1
 MaybeString Uri_parsePcharRaw(Stream *s, Alloc *alloc, bool lowercase, String extra) {
     MaybeChar c = stream_peekChar(s);
     if(isNone(c)) return none(MaybeString);
@@ -273,13 +298,13 @@ MaybeString Uri_parsePcharRaw(Stream *s, Alloc *alloc, bool lowercase, String ex
     byte p = 0;
 
     c = stream_peekChar(s);
-    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
+    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, URI_ERROR_INVALID_PERCENT_ENCODING);
     sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
     stream_popChar(s);
     p += 16*Uri_getHexDigitValue(c.value);
 
     c = stream_peekChar(s);
-    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
+    if(isNone(c) || (isJust(c) && !Uri_isHexdigit(c.value))) return fail(MaybeString, URI_ERROR_INVALID_PERCENT_ENCODING);
     sb_appendChar(&sb, Uri_normalizePercentByte(c.value));
     stream_popChar(s);
     p += 1*Uri_getHexDigitValue(c.value);
@@ -301,7 +326,7 @@ MaybeString Uri_parsePcharRawString(Stream *s, Alloc *alloc, bool lowercase, Str
     MaybeChar c = stream_peekChar(s);
     while(isJust(c) && Uri_isPcharRaw(c.value, extra)) {
         MaybeString pchar = Uri_parsePcharRaw(s, alloc, lowercase, extra);
-        if(isFail(pchar, PCHAR_INVALID_PERCENT_ENCODING)) return fail(MaybeString, PCHAR_INVALID_PERCENT_ENCODING);
+        if(isFail(pchar, URI_ERROR_INVALID_PERCENT_ENCODING)) return fail(MaybeString, URI_ERROR_INVALID_PERCENT_ENCODING);
         if(isNone(pchar)) break; // eof or non pchar
 
         // a pchar can be either 1 or 3 characters (percent encoding)
@@ -316,18 +341,16 @@ MaybeString Uri_parsePcharRawString(Stream *s, Alloc *alloc, bool lowercase, Str
 #define Uri_parsePcharString(s, alloc, low) Uri_parsePcharRawString((s), (alloc), (low), mkString("@:"))
 
 
-#define SEGMENT_NO_COLON 1
-#define SEGMENT_NON_ZERO 2
 MaybeString Uri_parsePathSegment(Stream *s, Alloc *alloc, bool nonZero, bool noColon) {
     MaybeString str = noColon ? Uri_parsePcharRawString(s, alloc, false, mkString("@")) : Uri_parsePcharString(s, alloc, false);
     if(isNone(str)) return fail(MaybeString, str.errmsg);
 
     if(noColon) {
         MaybeChar c = stream_peekChar(s);
-        if(isJust(c) && c.value == ':') return fail(MaybeString, SEGMENT_NO_COLON);
+        if(isJust(c) && c.value == ':') return fail(MaybeString, URI_ERROR_SEGMENT_MUST_NOT_CONTAIN_COLON);
     }
 
-    if(nonZero && str.value.len == 0) return fail(MaybeString, SEGMENT_NON_ZERO);
+    if(nonZero && str.value.len == 0) return fail(MaybeString, URI_ERROR_SEGMENT_MUST_BE_NON_EMPTY);
 
     return str;
 }
@@ -338,14 +361,14 @@ bool Uri_parsePathInternal(UriPath *path, Stream *s, Alloc *alloc) {
         stream_popChar(s);
 
         MaybeString segmentMaybe = Uri_parsePathSegment(s, alloc, false, false);
-        if(isFail(segmentMaybe, PCHAR_INVALID_PERCENT_ENCODING)) {
-            *path = fail(UriPath, mkString("Invalid percent encoding" DEBUG_LOC));
+        if(isFail(segmentMaybe, URI_ERROR_INVALID_PERCENT_ENCODING)) {
+            *path = fail(UriPath, mkUriError(URI_ERROR_INVALID_PERCENT_ENCODING, s));
             return false;
         }
 
         // NOTE: I kinda forgot how I handled errors here, may be unnecessary/bad
         if(isNone(segmentMaybe)) {
-            *path = fail(UriPath, mkString("Something bad happened" DEBUG_LOC));
+            *path = fail(UriPath, mkUriError(URI_ERROR_NEVER, s));
             return false;
         }
 
@@ -364,7 +387,7 @@ UriPath Uri_parsePathAbempty(Stream *s, Alloc *alloc) {
 
 UriPath Uri_parsePathRootlessOrNoscheme(Stream *s, Alloc *alloc, bool noColon) {
     MaybeString segmentMaybe = Uri_parsePathSegment(s, alloc, true, noColon);
-    if(isNone(segmentMaybe)) return fail(UriPath, mkString("The first segment of a rootless path cannot be empty" DEBUG_LOC));
+    if(isNone(segmentMaybe)) return fail(UriPath, mkUriError(URI_ERROR_PATH_ROOTLESS_FIRST_SEGMENT_MUST_NON_EMPTY, s));
 
     UriPath path = {0};
     path.segments = mkDynarCA(String, 8, alloc);
@@ -403,7 +426,7 @@ UriHost Uri_parseHostIpLiteral(Stream *s, Alloc *alloc) {
     s = s;
     alloc = alloc;
     // TODO: implement
-    return fail(UriHost, mkString("Non IPv4 IP literal parsing is not implemented yet" DEBUG_LOC));
+    return fail(UriHost, mkUriError(URI_ERROR_NOT_IMPLEMENTED, s));
 }
 
 UriHost Uri_parseHostIpv4(Stream *s) {
@@ -412,14 +435,14 @@ UriHost Uri_parseHostIpv4(Stream *s) {
     for(int i = 0; i < 4; i++) {
         u8 acc = 0;
         while(isJust(c = stream_peekChar(s)) && Uri_isDigit(c.value)) {
-            if(acc >= u8decmax) return fail(UriHost, mkString("Each number in IPv4 literal must fall in range 0..=255" DEBUG_LOC));
+            if(acc >= u8decmax) return fail(UriHost, mkUriError(URI_ERROR_IPV4_0_255, s));
             acc *= 10;
             acc += c.value - '0';
             stream_popChar(s);
         }
 
         if(i != 3) {
-            if(isNone(c) || (isJust(c) && c.value != '.')) return fail(UriHost, mkString("IPv4 format requires periods '.' between each number" DEBUG_LOC));
+            if(isNone(c) || (isJust(c) && c.value != '.')) return fail(UriHost, mkUriError(URI_ERROR_IPV4_INVALID, s));
             stream_popChar(s);
         }
 
@@ -448,8 +471,8 @@ UriHost Uri_parseHost(Stream *s, Alloc *alloc) {
 
     Stream regNameStream = mkStreamStr(sb_build(buffer));
     MaybeString regName = Uri_parsePcharRawString(&regNameStream, alloc, true, mkString(""));
-    if(isFail(regName, PCHAR_INVALID_PERCENT_ENCODING)) return fail(UriHost, mkString("Invalid percent encoding" DEBUG_LOC));
-    if(isNone(regName)) return fail(UriHost, mkString("This shouldn't happen" DEBUG_LOC));
+    if(isFail(regName, URI_ERROR_INVALID_PERCENT_ENCODING)) return fail(UriHost, mkUriError(URI_ERROR_INVALID_PERCENT_ENCODING, s));
+    if(isNone(regName)) return fail(UriHost, mkUriError(URI_ERROR_NEVER, s));
 
     UriHost host = { .type = URI_HOST_REGNAME, .regName = regName.value };
     return host;
@@ -529,7 +552,7 @@ UriAuthority Uri_parseAuthority(Stream *s, Alloc *alloc) {
         MaybeString userInfo = Uri_parsePcharRawString(&ps, alloc, false, mkString(":"));
 
         if(isNone(userInfo)) {
-            return fail(UriAuthority, mkString("Invalid percent encoding" DEBUG_LOC));
+            return fail(UriAuthority, mkUriError(URI_ERROR_INVALID_PERCENT_ENCODING, s));
         }
 
         authority.userInfo = userInfo.value;
@@ -603,7 +626,7 @@ UriHierarchyPart Uri_parseHier(Stream *s, Alloc *alloc) {
         return hier;
     }
 
-    return fail(UriHierarchyPart, mkString("Unreachable" DEBUG_LOC));
+    return fail(UriHierarchyPart, mkUriError(URI_ERROR_NEVER, s));
 }
 
 MaybeString Uri_parseQuery(Stream *s, Alloc *alloc) {
@@ -618,13 +641,13 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     Uri uri = {0};
 
     MaybeString scheme = Uri_parseScheme(s, alloc);
-    if(isNone(scheme)) return fail(Uri, *(String *)scheme.errmsg);
+    if(isNone(scheme)) return fail(Uri, mkUriError(scheme.errmsg, s));
     Uri_lowercase(&scheme.value);
     uri.scheme = scheme.value;
 
     MaybeChar c = stream_peekChar(s);
-    if(isNone(c)) return fail(Uri, mkString("Failed to read a character" DEBUG_LOC));
-    if(isJust(c) && c.value != ':') return fail(Uri, mkString("A colon ':' is missing after the scheme" DEBUG_LOC));
+    if(isNone(c)) return fail(Uri, mkUriError(URI_ERROR_FAILED_TO_READ, s));
+    if(isJust(c) && c.value != ':') return fail(Uri, mkUriError(URI_ERROR_SCHEME_NO_COLON, s));
     stream_popChar(s);
 
     UriHierarchyPart hier = Uri_parseHier(s, alloc);
@@ -635,8 +658,8 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     if(isJust(c) && c.value == '?') {
         stream_popChar(s);
         MaybeString query = Uri_parseQuery(s, alloc);
-        if(isFail(query, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
-        if(isNone(query)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
+        if(isFail(query, URI_ERROR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkUriError(URI_ERROR_INVALID_PERCENT_ENCODING, s));
+        if(isNone(query)) return fail(Uri, mkUriError(URI_ERROR_NEVER, s));
         uri.query = query.value;
     }
 
@@ -644,14 +667,14 @@ Uri Uri_parseUri(Stream *s, Alloc *alloc) {
     if(isJust(c) && c.value == '#') {
         stream_popChar(s);
         MaybeString fragment = Uri_parseFragment(s, alloc);
-        if(isFail(fragment, PCHAR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkString("Invalid percent encoding" DEBUG_LOC));
-        if(isNone(fragment)) return fail(Uri, mkString("This shouldn't happen" DEBUG_LOC));
+        if(isFail(fragment, URI_ERROR_INVALID_PERCENT_ENCODING)) return fail(Uri, mkUriError(URI_ERROR_INVALID_PERCENT_ENCODING, s));
+        if(isNone(fragment)) return fail(Uri, mkUriError(URI_ERROR_NEVER, s));
         uri.fragment = fragment.value;
     }
 
     c = stream_peekChar(s);
     if(!isNone(c)) {
-        return fail(Uri, mkString("Unexpected character at the end of the URI" DEBUG_LOC));
+        return fail(Uri, mkUriError(URI_ERROR_REMAINING_CHARACTERS, s));
     }
 
     return uri;

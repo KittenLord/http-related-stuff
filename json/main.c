@@ -7,41 +7,42 @@
 #include <http/json.c>
 
 int main() {
-    FILE *testJson = fopen("test.json", "r");
-    int testJsonFd = fileno(testJson);
 
-    Stream s = mkStreamFd(testJsonFd);
-
-    JsonValue value;
-    Alloc resultAlloc = mkAlloc_LinearExpandable();
-    UseAlloc(mkAlloc_LinearExpandable(), {
-        value = JSON_parse(&s, &resultAlloc);
-    });
-
-    // mkJson(value) {
-    //     mkJsonObject {
-    //         mkJsonKV("keyA") {
-    //             mkJsonNumber(5);
-    //         }
+    // FILE *testJson = fopen("test.json", "r");
+    // int testJsonFd = fileno(testJson);
     //
-    //         mkJsonKV("keyB") {
-    //             mkJsonString("value");
-    //         }
+    // Stream s = mkStreamFd(testJsonFd);
     //
-    //         mkJsonKV("array") {
-    //             mkJsonArray {
-    //                 for(int i = 0; i < 5; i++) {
-    //                     mkJsonElement {
-    //                         mkJsonString("a");
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    // JsonValue value;
+    // Alloc resultAlloc = mkAlloc_LinearExpandable();
+    // UseAlloc(mkAlloc_LinearExpandable(), {
+    //     value = JSON_parse(&s, &resultAlloc);
+    // });
 
     Stream cout = mkStreamFd(STDOUT_FILENO);
-    JSON_serialize(value, &cout, true);
 
+    mkJson(value) {
+        mkJsonObject {
+            mkJsonKV("keyA") {
+                mkJsonNumber(5);
+            }
+
+            mkJsonKV("keyB") {
+                mkJsonString("value");
+            }
+
+            mkJsonKV("array") {
+                mkJsonArray {
+                    for(int i = 0; i < 5; i++) {
+                        mkJsonElement {
+                            mkJsonString("a");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    JSON_serialize(value, &cout, true);
     return 0;
 }
