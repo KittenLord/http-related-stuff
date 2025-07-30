@@ -801,7 +801,7 @@ bool Coil_Run(int sock, Router *router) {
             u8 c = ((ip & 0x00ff0000) >> 16);
             u8 d = ((ip & 0xff000000) >> 24);
 
-            Log_format2(LOG_INFO, "<%d> Accepted client. IP: %d.%d.%d.%d:%d", _connection.id, d, c, b, a, port);
+            Log_format2(LOG_INFO, "<%d> Accepted client. IP: %d.%d.%d.%d:%d", _connection.id, a, b, c, d, port);
         }
         else {
             Log_format0(LOG_INFO, "<%d> Accepted client", _connection.id);
