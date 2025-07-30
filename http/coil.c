@@ -6,11 +6,13 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include "http.c"
 
 #include "file.c"
 #include "router.c"
+#include "logging.c"
 
 #ifndef CONTENT_LIMIT
 #define CONTENT_LIMIT 100000000
@@ -260,9 +262,9 @@ Mem Coil_GetContent(RouteContext *context) {
             HttpTransferCoding coding = dynar_peek(HttpTransferCoding, &transferEncoding.codings);
             dynar_pop(HttpTransferCoding, &transferEncoding.codings);
 
-            printf("CODING %.*s\n", (int)coding.coding.len, coding.coding.s);
+            // printf("CODING %.*s\n", (int)coding.coding.len, coding.coding.s);
 
-            printf("RBUFFER\n");
+            // printf("RBUFFER\n");
             write(STDOUT_FILENO, context->s->rbuffer.s, context->s->rbuffer.len);
 
             if(mem_eq(coding.coding, mkString("chunked"))) {
@@ -332,6 +334,8 @@ Mem Coil_GetContent(RouteContext *context) {
 }
 
 typedef struct {
+    usz id;
+
     struct sockaddr_in addr;
     int clientSock;
 
@@ -339,10 +343,10 @@ typedef struct {
 } Connection;
 
 void *threadRoutine(void *_connection) {
-    printf("NEW CONNECTION\n");
-
     Connection connection = *(Connection *)_connection;
     Free(_connection);
+
+    Log_format1(LOG_INFO, "<%d> Started thread routine", connection.id);
 
     // https://stackoverflow.com/questions/2876024/linux-is-there-a-read-or-recv-from-socket-with-timeout
     struct timeval timeout = { .tv_sec = 60 }; // for some bizarre reason this works only half the time
@@ -378,6 +382,7 @@ void *threadRoutine(void *_connection) {
 
         if(isNone(requestLine)) {
             context.error = requestLine.errmsg;
+            Log_format2(LOG_ERROR, "<%d> Couldn't parse request line. errmsg = %d", connection.id, requestLine.errmsg);
 
             if(isFail(requestLine, HTTPERR_INTERNAL_ERROR)) {
                 context.statusCode = 500;
@@ -402,6 +407,20 @@ void *threadRoutine(void *_connection) {
 
         if(requestLine.target.path.segments.len != 0) {
             if(dynar_peek(String, &requestLine.target.path.segments).len == 0) requestLine.target.path.segments.len -= 1;
+        }
+
+        if(Log_is1) {
+            StringBuilder sb = mkStringBuilder();
+            dynar_foreach(String, &requestLine.target.path.segments) {
+                sb_appendChar(&sb, '/');
+                sb_appendMem(&sb, loop.it);
+            }
+            if(sb.len == 0) {
+                sb_appendChar(&sb, '/');
+            }
+
+            String path = sb_build(sb);
+            Log_format2(LOG_INFO, "<%d> Request at \"%.*s\"", connection.id, path.len, path.s);
         }
 
         Map headers = mkMap();
@@ -438,17 +457,6 @@ void *threadRoutine(void *_connection) {
             goto cleanup;
         }
 
-        // dynar_foreach(HttpTransferCoding, &memExtract(HttpH_TE, map_get(&headers, mkString("accept-language"))).codings) {
-        //     printf("Accept-Language: %.*s\n", loop.it.coding.len, loop.it.coding.s);
-        //     HttpTransferCoding *current = loop.itptr;
-        //     printf("    PARAM: Q\n");
-        //     printf("      VALUE: %f\n", loop.it.params.q);
-        //     dynar_foreach(HttpParameter, &current->params.list) {
-        //         printf("    PARAM: %.*s\n", loop.it.name.len, loop.it.name.s);
-        //         printf("      VALUE: %.*s\n", loop.it.value.len, loop.it.value.s);
-        //     }
-        // }
-
         HttpH_Connection *connectionHeader = memExtractPtr(HttpH_Connection, map_get(&headers, mkString("connection")));
         bool containsClose = connectionHeader != null
             ? dynar_containsString(&connectionHeader->connectionOptions, mkString("close")) : false;
@@ -466,7 +474,7 @@ void *threadRoutine(void *_connection) {
             HttpH_TransferEncoding transferEncoding = memExtract(HttpH_TransferEncoding, map_get(&headers, mkString("transfer-encoding")));
             dynar_foreach(HttpTransferCoding, &transferEncoding.codings) {
                 if(loop.index == transferEncoding.codings.len - 1 && !mem_eq(loop.it.coding, mkString("chunked"))) {
-                    printf("BAD A\n");
+                    // printf("BAD A\n");
                     context.statusCode = 400;
                     context.error = HTTPERR_BAD_TRANSFER_CODING;
                     Handle(&context, connection.router->handler_badRequest);
@@ -474,7 +482,7 @@ void *threadRoutine(void *_connection) {
                 }
 
                 if(loop.index != transferEncoding.codings.len - 1 && mem_eq(loop.it.coding, mkString("chunked"))) {
-                    printf("BAD B\n");
+                    // printf("BAD B\n");
                     context.statusCode = 400;
                     context.error = HTTPERR_BAD_TRANSFER_CODING;
                     Handle(&context, connection.router->handler_badRequest);
@@ -533,21 +541,23 @@ void *threadRoutine(void *_connection) {
             .matches = &routeMatches,
         });
 
-        MapIter iter = map_iter(&headers);
-        while(!map_iter_end(&iter)) {
-            MapEntry entry = map_iter_next(&iter);
-            HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
-            String value = header.value;
-            value = value;
-
-            // printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
-            // printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
-            // printf("-----------\n");
-        }
+        // MapIter iter = map_iter(&headers);
+        // while(!map_iter_end(&iter)) {
+        //     MapEntry entry = map_iter_next(&iter);
+        //     HttpH_Unknown header = memExtract(HttpH_Unknown, entry.val);
+        //     String value = header.value;
+        //     value = value;
+        //
+        //     // printf("HEADER NAME: %.*s\n", (int)entry.key.len, entry.key.s);
+        //     // printf("HEADER VALUE: %.*s\n", (int)value.len, value.s);
+        //     // printf("-----------\n");
+        // }
 
         Route route = getRoute(connection.router, &context);
         if(isNone(route)) {
             if(isFail(route, ROUTE_ERR_FOUND_URI)) {
+                Log_format2(LOG_ERROR, "<%d> Couldn't find an appropriate route with this method", connection.id);
+
                 context.statusCode = 405;
                 context.allowedMethodMask = route.methodMask;
                 pure(result) Handle(&context, connection.router->handler_badRequest);
@@ -556,6 +566,8 @@ void *threadRoutine(void *_connection) {
                 continue;
             }
             else {
+                Log_format2(LOG_ERROR, "<%d> Couldn't find an appropriate route", connection.id);
+
                 context.statusCode = 404;
                 pure(result) Handle(&context, connection.router->handler_routeNotFound);
                 cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
@@ -564,24 +576,29 @@ void *threadRoutine(void *_connection) {
             }
         }
 
+        Log_format2(LOG_INFO, "<%d> Trying to handle the route", connection.id);
         bool result = Handle(&context, route.handler);
         if(!result) {
+            Log_format1(LOG_ERROR, "<%d> Couldn't handle the route", connection.id);
+
             context.statusCode = 500;
             Handle(&context, connection.router->handler_internalError);
             goto cleanup;
         }
+        Log_format2(LOG_INFO, "<%d> Route handled successfully", connection.id);
 
         if(!context.persist) connectionPersists = false;
 
         result = flattenStreamResultWrite(stream_writeFlush(&s));
         if(!result) {
+            Log_format1(LOG_ERROR, "<%d> Couldn't flush the buffer", connection.id);
             goto cleanup;
         }
 
     } while(connectionPersists);
 
 cleanup:
-    printf("END CONNECTION\n");
+    Log_format1(LOG_INFO, "<%d> Closing connection", connection.id);
     stream_writeFlush(&s);
     ALLOC_POP();
     Free(s.wbuffer.s);
@@ -640,7 +657,7 @@ CoilCallback(CoilCB_error, {
 
     switch(statusCode) {
         case 400:
-            printf("ERROR CODE %d\n", context->error);
+            // printf("ERROR CODE %d\n", context->error);
             content = mkString("<html><body><h1>400 Bad Request</h1><h2>Your request is very bad (uncool and bad and not cool!) >:(</h2></body></html>");
             break;
         case 404:
@@ -688,8 +705,15 @@ typedef struct {
 
 MaybeSocket Coil_GetSocket(u16 port, int backlog) {
     int result;
+
     int sock = result = socket(AF_INET, SOCK_STREAM, 0);
-    if(result == -1) return none(MaybeSocket);
+
+    if(result == -1) {
+        Log_format0(LOG_ERROR, "Couldn't create a socket. errno = %d", errno);
+        return none(MaybeSocket);
+    }
+
+    Log_format2(LOG_INFO, "Created a socket. fd = %d", sock);
 
     struct sockaddr_in addr = (struct sockaddr_in){
         .sin_family = AF_INET,
@@ -699,11 +723,24 @@ MaybeSocket Coil_GetSocket(u16 port, int backlog) {
         },
     };
 
+    Log_format2(LOG_INFO, "Binding the socket to port %d", port);
     result = bind(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-    if(result == -1) return none(MaybeSocket);
+
+    if(result == -1) {
+        Log_format0(LOG_ERROR, "Couldn't bind the socket. errno = %d", errno);
+        return none(MaybeSocket);
+    }
+
+    Log_message2(LOG_INFO, "Bound the socket successfully");
 
     result = listen(sock, backlog);
-    if(result == -1) return none(MaybeSocket);
+
+    if(result == -1) {
+        Log_format0(LOG_ERROR, "Couldn't make the socket listen. errno = %d", errno);
+        return none(MaybeSocket);
+    }
+
+    Log_message2(LOG_INFO, "Socket is listening to connections");
 
     return just(MaybeSocket, sock);
 }
@@ -730,19 +767,45 @@ bool Coil_Run(int sock, Router *router) {
     };
     struct sigaction sigHandlerOld;
     int result = sigaction(SIGPIPE, &sigHandlerNone, &sigHandlerOld);
-    if(result != 0) return false;
+    if(result != 0) {
+        Log_format0(LOG_WARNING, "Couldn't replace SIGPIPE handler. errno = %d", errno);
+        // NOTE: does this really warrant quitting?
+        // return false;
+    }
+
+    Log_message0(LOG_INFO, "Request loop started");
+
+    usz connectionId = 1000;
 
     while(true) {
         struct sockaddr_in caddr = {0};
         socklen_t caddrLen = 0;
+        // TODO: figure out if this works for IPv6
         int csock = accept(sock, (struct sockaddr *)&caddr, &caddrLen);
+
         int result;
 
         Connection _connection = {
             .addr = caddr,
             .clientSock = csock,
             .router = router,
+            .id = connectionId,
         };
+        connectionId += 1;
+
+        if(Log_is2) {
+            u32 ip = caddr.sin_addr.s_addr;
+            u16 port = caddr.sin_port;
+            u8 a = ((ip & 0x000000ff) >> 0);
+            u8 b = ((ip & 0x0000ff00) >> 8);
+            u8 c = ((ip & 0x00ff0000) >> 16);
+            u8 d = ((ip & 0xff000000) >> 24);
+
+            Log_format2(LOG_INFO, "<%d> Accepted client. IP: %d.%d.%d.%d:%d", _connection.id, d, c, b, a, port);
+        }
+        else {
+            Log_format0(LOG_INFO, "<%d> Accepted client", _connection.id);
+        }
 
         AllocateVarC(Connection, connection, _connection, ALLOC_GLOBAL);
 
@@ -759,7 +822,7 @@ bool Coil_Run(int sock, Router *router) {
     if(result != 0) return false;
 
     int closeResult = close(sock);
-    printf("CLOSE %d\n", closeResult);
+    // printf("CLOSE %d\n", closeResult);
 
     return true;
 }

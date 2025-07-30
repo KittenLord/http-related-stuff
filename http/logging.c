@@ -3,6 +3,14 @@
 
 #include <time.h>
 
+#include <stream.h>
+#include <str.h>
+#include <text.h>
+#include <stdarg.h>
+
+// TODO: we might need a distinction for client/server info and client/server error
+// e.g. if you see a client error you don't really care, while seeing a server error
+// warrants looking into it
 typedef enum {
     LOG_INFO,
     LOG_WARNING,
@@ -64,6 +72,7 @@ void Log_writeTimeStamp(Stream *s) {
 }
 
 void Log_writeType(Stream *s, LogType type) {
+    // NOTE: bold and color
     if(false) {}
     else if(type == LOG_INFO) {
         stream_write(s, mkString("\e[1;37mINFO\e[0m"));
@@ -76,7 +85,7 @@ void Log_writeType(Stream *s, LogType type) {
     }
 }
 
-void Log_messageAlways(LogType type, String message) {
+void Log_messageL(LogType type, String message) {
     char buffer[1024] = {0};
     StringBuilder sb = mkStringBuilderMem(mkMem(buffer, 1024));
     Stream s = mkStreamSb(&sb);
@@ -103,11 +112,27 @@ void Log_messageAlways(LogType type, String message) {
     String result = sb_build(sb);
     write(STDOUT_FILENO, result.s, result.len);
 }
+#define Log_message(ty, msg) Log_messageL(ty, mkString(msg))
 
-#define Log_message(type, msg) Log_messageAlways(type, msg)
+void Log_format(LogType type, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
 
-#define Log_message1(type, msg) Log_messageAlways(type, msg);
+    char buffer[1024] = {0};
+    usz len = vsprintf(buffer, format, args);
+    Log_messageL(type, mkMem(buffer, len));
+}
 
-#define Log_message2(type, msg) Log_messageAlways(type, msg);
+#define Log_message0(type, msg) Log_message(type, msg);
+#define Log_message1(type, msg) Log_message(type, msg);
+#define Log_message2(type, msg) Log_message(type, msg);
+
+#define Log_format0(type, format, ...) Log_format(type, format, __VA_ARGS__)
+#define Log_format1(type, format, ...) Log_format(type, format, __VA_ARGS__)
+#define Log_format2(type, format, ...) Log_format(type, format, __VA_ARGS__)
+
+#define Log_is0 true
+#define Log_is1 true
+#define Log_is2 true
 
 #endif // __LIB_LOGGING
