@@ -19,8 +19,17 @@
 
 #define GLOBAL
 
-#define pure(result) bool result =
-#define cont(result) result = result &&
+// #define pure(result) bool result =
+// #define cont(result) result = result &&
+
+#define checkRetVal(expr, val) do { if(!(expr)) { return (val); } } while(0)
+#define checkRet(expr) checkRetVal(expr, false)
+
+#define tryRetVal(expr, val) do { if(isNone(expr)) { return (val); } } while(0)
+#define tryRet(expr) tryRetVal(expr, false)
+
+#define checkDo(expr, action) do { if(!(expr)) { action; } } while(0)
+#define tryDo(expr, action) do { if(isNone(expr)) { action; } } while(0)
 
 #define fixchar (const char * restrict)
 

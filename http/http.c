@@ -260,19 +260,18 @@ f32 Http_matchMediaType(HttpMediaType allowed, HttpMediaType testing) {
 }
 
 bool Http_writeMediaType(Stream *s, HttpMediaType mediaType) {
-    pure(result) true;
-    if(mediaType.typeWildcard) cont(result) stream_writeChar(s, '*');
-    else cont(result) flattenStreamResultWrite(stream_write(s, mediaType.type));
+    if(mediaType.typeWildcard)      checkRet(stream_writeChar(s, '*'));
+    else                            tryRet(stream_write(s, mediaType.type));
 
-    cont(result) stream_writeChar(s, '/');
+    checkRet(stream_writeChar(s, '/'));
 
-    if(mediaType.subtypeWildcard) cont(result) stream_writeChar(s, '*');
-    else cont(result) flattenStreamResultWrite(stream_write(s, mediaType.subtype));
+    if(mediaType.subtypeWildcard)   checkRet(stream_writeChar(s, '*'));
+    else                            tryRet(stream_write(s, mediaType.subtype));
 
     // TODO: write parameters
     // dynar_foreach()
 
-    return result;
+    return true;
 }
 
 bool Http_writeDate(Stream *s, time_t t) {
@@ -286,33 +285,33 @@ bool Http_writeDate(Stream *s, time_t t) {
     Mem month = mkMem(months[timeStamp.tm_mon], 3);
     Mem gmt = mkMem(gmts, 3);
 
-    pure(result) flattenStreamResultWrite(stream_write(s, wday));
-    cont(result) stream_writeChar(s, ',');
-    cont(result) stream_writeChar(s, ' ');
+    tryRet(stream_write(s, wday));
+    checkRet(stream_writeChar(s, ','));
+    checkRet(stream_writeChar(s, ' '));
 
-    cont(result) stream_writeChar(s, (timeStamp.tm_mday / 10) + '0');
-    cont(result) stream_writeChar(s, (timeStamp.tm_mday % 10) + '0');
-    cont(result) stream_writeChar(s, ' ');
-    cont(result) flattenStreamResultWrite(stream_write(s, month));
-    cont(result) stream_writeChar(s, ' ');
+    checkRet(stream_writeChar(s, (timeStamp.tm_mday / 10) + '0'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_mday % 10) + '0'));
+    checkRet(stream_writeChar(s, ' '));
+    tryRet(stream_write(s, month));
+    checkRet(stream_writeChar(s, ' '));
     // NOTE: will work for around 7000 years
-    cont(result) writeU64ToDecimal(s, timeStamp.tm_year + 1900);
+    checkRet(writeU64ToDecimal(s, timeStamp.tm_year + 1900));
 
-    cont(result) stream_writeChar(s, ' ');
+    checkRet(stream_writeChar(s, ' '));
 
-    cont(result) stream_writeChar(s, (timeStamp.tm_hour / 10) + '0');
-    cont(result) stream_writeChar(s, (timeStamp.tm_hour % 10) + '0');
-    cont(result) stream_writeChar(s, ':');
-    cont(result) stream_writeChar(s, (timeStamp.tm_min / 10) + '0');
-    cont(result) stream_writeChar(s, (timeStamp.tm_min % 10) + '0');
-    cont(result) stream_writeChar(s, ':');
-    cont(result) stream_writeChar(s, (timeStamp.tm_sec / 10) + '0');
-    cont(result) stream_writeChar(s, (timeStamp.tm_sec % 10) + '0');
+    checkRet(stream_writeChar(s, (timeStamp.tm_hour / 10) + '0'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_hour % 10) + '0'));
+    checkRet(stream_writeChar(s, ':'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_min / 10) + '0'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_min % 10) + '0'));
+    checkRet(stream_writeChar(s, ':'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_sec / 10) + '0'));
+    checkRet(stream_writeChar(s, (timeStamp.tm_sec % 10) + '0'));
 
-    cont(result) stream_writeChar(s, ' ');
-    cont(result) flattenStreamResultWrite(stream_write(s, gmt));
+    checkRet(stream_writeChar(s, ' '));
+    tryRet(stream_write(s, gmt));
 
-    return result;
+    return true;
 }
 
 bool Http_parseDate(Stream *s, time_t *t) {
@@ -350,16 +349,14 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(wday >= 7) return false;
 
-        pure(result) Http_parseOne(s, ',');
-        cont(result) Http_parseOne(s, ' ');
-        if(!result) return false;
+        checkRet(Http_parseOne(s, ','));
+        checkRet(Http_parseOne(s, ' '));
 
         u64 day = 0;
-        cont(result) parseU64FromDecimalFixed(s, &day, 2, false);
-        if(!result) return false;
+        checkRet(parseU64FromDecimalFixed(s, &day, 2, false));
         if(day >= 32) return false;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         sb.len = 0;
         for(int i = 0; i < 3; i++) {
@@ -373,31 +370,30 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(month >= 12) return false;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         u64 year = 0;
-        cont(result) parseU64FromDecimalFixed(s, &year, 4, false);
-        if(!result) return false;
+        checkRet(parseU64FromDecimalFixed(s, &year, 4, false));
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         u64 hour = 0;
-        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
-        if(result && hour >= 24) return false;
+        checkRet(parseU64FromDecimalFixed(s, &hour, 2, false));
+        if(hour >= 24) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 minute = 0;
-        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
-        if(result && minute >= 60) return false;
+        checkRet(parseU64FromDecimalFixed(s, &minute, 2, false));
+        if(minute >= 60) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 second = 0;
-        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
-        if(result && second >= 61) return false;
+        checkRet(parseU64FromDecimalFixed(s, &second, 2, false));
+        if(second >= 61) return false;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         sb.len = 0;
         for(int i = 0; i < 3; i++) {
@@ -407,7 +403,6 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
 
         if(!mem_eq(sb_build(sb), mkString("GMT"))) return false;
-        if(!result) return false;
 
         struct tm timeStamp = {
             .tm_sec = second,
@@ -421,6 +416,7 @@ bool Http_parseDate(Stream *s, time_t *t) {
         time_t tr = timegm(&timeStamp);
         if(tr == -1) return false;
         *t = tr;
+
         return true;
     }
     // asctime
@@ -431,8 +427,7 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(wday >= 7) return false;
 
-        pure(result) Http_parseOne(s, ' ');
-        if(!result) return false;
+        checkRet(Http_parseOne(s, ' '));
 
         sb.len = 0;
         for(int i = 0; i < 3; i++) {
@@ -446,8 +441,7 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(month >= 12) return false;
 
-        cont(result) Http_parseOne(s, ' ');
-        if(!result) return false;
+        checkRet(Http_parseOne(s, ' '));
 
         c = stream_peekChar(s);
         if(isNone(c)) return false;
@@ -461,30 +455,28 @@ bool Http_parseDate(Stream *s, time_t *t) {
         day += (c.value - '0');
         if(day >= 32) return false;
 
-        cont(result) Http_parseOne(s, ' ');
-        if(!result) return false;
+        checkRet(Http_parseOne(s, ' '));
 
         u64 hour = 0;
-        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
-        if(result && hour >= 24) return false;
+        checkRet(parseU64FromDecimalFixed(s, &hour, 2, false));
+        if(hour >= 24) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 minute = 0;
-        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
-        if(result && minute >= 60) return false;
+        checkRet(parseU64FromDecimalFixed(s, &minute, 2, false));
+        if(minute >= 60) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 second = 0;
-        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
-        if(result && second >= 61) return false;
+        checkRet(parseU64FromDecimalFixed(s, &second, 2, false));
+        if(second >= 61) return false;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         u64 year = 0;
-        cont(result) parseU64FromDecimalFixed(s, &year, 4, false);
-        if(!result) return false;
+        checkRet(parseU64FromDecimalFixed(s, &year, 4, false));
 
         struct tm timeStamp = {
             .tm_sec = second,
@@ -514,15 +506,14 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(wday >= 7) return false;
 
-        pure(result) Http_parseOne(s, ',');
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ','));
+        checkRet(Http_parseOne(s, ' '));
 
         u64 day = 0;
-        cont(result) parseU64FromDecimalFixed(s, &day, 2, false);
-        if(!result) return false;
+        checkRet(parseU64FromDecimalFixed(s, &day, 2, false));
         if(day >= 32) return false;
 
-        cont(result) Http_parseOne(s, '-');
+        checkRet(Http_parseOne(s, '-'));
 
         sb.len = 0;
         for(int i = 0; i < 3; i++) {
@@ -536,32 +527,31 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
         if(month >= 12) return false;
 
-        cont(result) Http_parseOne(s, '-');
+        checkRet(Http_parseOne(s, '-'));
 
         u64 year = 0;
-        cont(result) parseU64FromDecimalFixed(s, &year, 2, false);
-        if(!result) return false;
+        checkRet(parseU64FromDecimalFixed(s, &year, 2, false));
         year += 2000;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         u64 hour = 0;
-        cont(result) parseU64FromDecimalFixed(s, &hour, 2, false);
-        if(result && hour >= 24) return false;
+        checkRet(parseU64FromDecimalFixed(s, &hour, 2, false));
+        if(hour >= 24) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 minute = 0;
-        cont(result) parseU64FromDecimalFixed(s, &minute, 2, false);
-        if(result && minute >= 60) return false;
+        checkRet(parseU64FromDecimalFixed(s, &minute, 2, false));
+        if(minute >= 60) return false;
 
-        cont(result) Http_parseOne(s, ':');
+        checkRet(Http_parseOne(s, ':'));
 
         u64 second = 0;
-        cont(result) parseU64FromDecimalFixed(s, &second, 2, false);
-        if(result && second >= 61) return false;
+        checkRet(parseU64FromDecimalFixed(s, &second, 2, false));
+        if(second >= 61) return false;
 
-        cont(result) Http_parseOne(s, ' ');
+        checkRet(Http_parseOne(s, ' '));
 
         sb.len = 0;
         for(int i = 0; i < 3; i++) {
@@ -571,7 +561,6 @@ bool Http_parseDate(Stream *s, time_t *t) {
         }
 
         if(!mem_eq(sb_build(sb), mkString("GMT"))) return false;
-        if(!result) return false;
 
         struct tm timeStamp = {
             .tm_sec = second,
@@ -585,6 +574,7 @@ bool Http_parseDate(Stream *s, time_t *t) {
         time_t tr = timegm(&timeStamp);
         if(tr == -1) return false;
         *t = tr;
+
         return true;
     }
     else {
@@ -823,9 +813,9 @@ bool Http_parseCRLF(Stream *s) {
 }
 
 bool Http_writeCRLF(Stream *s) {
-    pure(result) stream_writeChar(s, HTTP_CR);
-    cont(result) stream_writeChar(s, HTTP_LF);
-    return result;
+    checkRet(stream_writeChar(s, HTTP_CR));
+    checkRet(stream_writeChar(s, HTTP_LF));
+    return true;
 }
 
 Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
@@ -833,10 +823,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
     if(method == HTTP_INVALID_METHOD) { return fail(Http11RequestLine, HTTPERR_INVALID_METHOD); }
     if(method == HTTP_CUSTOM) { return fail(Http11RequestLine, HTTPERR_UNKNOWN_METHOD); }
 
-    bool result;
-
-    result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
+    checkRetVal(Http_parseWS(s), fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR));
 
     MaybeChar c = stream_peekChar(s);
     if(isNone(c)) {
@@ -884,8 +871,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
 
     stream_rlimitDisable(s);
 
-    result = Http_parseWS(s);
-    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
+    checkRetVal(Http_parseWS(s), fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR));
 
     HttpVersion version = {0};
     bool majorSet = false;
@@ -912,8 +898,7 @@ Http11RequestLine Http_parseHttp11RequestLine(Stream *s, Alloc *alloc) {
         .version = version,
     };
 
-    result = Http_parseCRLF(s);
-    if(!result) { return fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR); }
+    checkRetVal(Http_parseCRLF(s), fail(Http11RequestLine, HTTPERR_REQUEST_LINE_ERROR));
 
     return requestLine;
 }
@@ -956,13 +941,11 @@ HttpError Http_parseHeader_##headerName(Map *map, String value, HttpH_##headerNa
     StringBuilder sb = mkStringBuilder(); \
     Stream _out = mkStreamSb(&sb); \
     Stream *out = &_out; \
-    pure(r) true; \
     if(already != null && already->value.len != 0) { \
-        cont(r) flattenStreamResultWrite(stream_write(out, already->value)); \
-        cont(r) stream_writeChar(out, ','); \
+        tryRetVal(stream_write(out, already->value), HTTPERR_INTERNAL_ERROR); \
+        checkRetVal(stream_writeChar(out, ','), HTTPERR_INTERNAL_ERROR); \
     } \
-    cont(r) flattenStreamResultWrite(stream_write(out, value)); \
-    if(!r) return HTTPERR_INTERNAL_ERROR; \
+    tryRetVal(stream_write(out, value), HTTPERR_INTERNAL_ERROR); \
     HttpH_##headerName header = {0}; \
     header.listName = already == null ? mkDynarA(ty, map->alloc) : already->listName; \
     MaybeChar c; \
@@ -979,8 +962,7 @@ HttpError Http_parseHeader_##headerName(Map *map, String value, HttpH_##headerNa
         } \
         if(isNone(stream_peekChar(s))) break; \
         Http_parseWS(s); \
-        bool r = Http_parseOne(s, ','); \
-        if(!r) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+        checkRetVal(Http_parseOne(s, ','), HTTPERR_INVALID_HEADER_FIELD_VALUE); \
         Http_parseWS(s); \
     } \
     header.value = sb_build(sb); \
@@ -1001,11 +983,11 @@ Http_generate_parseHeaderList(Connection, "connection", connectionOptions, Strin
 #define Http_generate_parseHeaderTranfer(_TE, str, onlyQ) \
 Http_generate_parseHeaderList(_TE, str, codings, HttpTransferCoding, { \
     MaybeString coding = Http_parseToken(s, map->alloc, 0); \
-    cont(result) isJust(coding); \
+    result = result && isJust(coding); \
     if(result) { \
         HttpParameters params = Http_parseParameters(s, map->alloc); \
-        cont(result) isJust(params); \
-        if(onlyQ) { cont(result) params.list.len == 0; } \
+        result = result && isJust(params); \
+        if(onlyQ) { result = result && params.list.len == 0; } \
         value = ((HttpTransferCoding){ .coding = coding.value, .params = params }); \
     } \
 })
@@ -1017,14 +999,14 @@ Http_generate_parseHeaderTranfer(AcceptEncoding, "accept-encoding", true)
 #define Http_generate_parseHeaderIfMatch(_IfMatch, str) \
 Http_generate_parseHeaderList(_IfMatch, str, etags, HttpEntityTag, { \
     if(Http_parseOne(s, '*')) { \
-        cont(result) already == null; \
+        result = result && already == null; \
         empty = true; \
         header.any = true; \
     } \
     else { \
-        cont(result) !header.any; \
+        result = result && !header.any; \
         HttpEntityTag etag = Http_parseEntityTag(s, ALLOC); \
-        cont(result) isJust(etag); \
+        result = result && isJust(etag); \
         value = etag; \
     } \
 })
@@ -1051,9 +1033,7 @@ HttpError Http_parseHeader_ContentLength(Map *map, String value, HttpH_ContentLe
     Stream s = mkStreamStr(value);
 
     u64 length;
-    bool result = parseU64FromDecimal(&s, &length, true);
-
-    if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE;
+    checkRetVal(parseU64FromDecimal(&s, &length, true), HTTPERR_INVALID_HEADER_FIELD_VALUE);
 
     HttpH_ContentLength header = {
         .value = value,
@@ -1070,8 +1050,7 @@ HttpError Http_parseHeader_##name(Map *map, String value, HttpH_##name *already)
     if(already != null) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
     Stream s = mkStreamStr(value); \
     time_t t; \
-    bool result = Http_parseDate(&s, &t); \
-    if(!result) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
+    checkRetVal(Http_parseDate(&s, &t), HTTPERR_INVALID_HEADER_FIELD_VALUE); \
     if(isJust(stream_peekChar(&s))) return HTTPERR_INVALID_HEADER_FIELD_VALUE; \
     HttpH_##name header = { \
         .value = value, \
@@ -1253,21 +1232,21 @@ bool Http_writeStatusLine(Stream *s, u8 major, u8 minor, HttpStatusCode statusCo
         reasonPhrase = Http_getDefaultReasonPhrase(statusCode);
     }
 
-    pure(result) flattenStreamResultWrite(stream_write(s, mkString("HTTP/")));
-    cont(result) stream_writeChar(s, major + '0');
-    cont(result) stream_writeChar(s, '.');
-    cont(result) stream_writeChar(s, minor + '0');
+    tryRet(stream_write(s, mkString("HTTP/")));
+    checkRet(stream_writeChar(s, major + '0'));
+    checkRet(stream_writeChar(s, '.'));
+    checkRet(stream_writeChar(s, minor + '0'));
 
-    cont(result) stream_writeChar(s, ' ');
+    checkRet(stream_writeChar(s, ' '));
 
-    cont(result) writeU64ToDecimal(s, statusCode);
+    checkRet(writeU64ToDecimal(s, statusCode));
 
-    cont(result) stream_writeChar(s, ' ');
+    checkRet(stream_writeChar(s, ' '));
 
-    cont(result) flattenStreamResultWrite(stream_write(s, reasonPhrase));
+    tryRet(stream_write(s, reasonPhrase));
 
-    cont(result) Http_writeCRLF(s);
-    return result;
+    checkRet(Http_writeCRLF(s));
+    return true;
 }
 
 #endif // __LIB_HTTP

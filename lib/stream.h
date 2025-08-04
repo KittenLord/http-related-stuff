@@ -91,9 +91,6 @@ typedef struct {
 #define mkResultWrite(intend, real) ((ResultWrite){ .written = (real), .partial = (real) < (intend) })
 #define mkResultRead(intend, real) ((ResultRead){ .read = (real), .partial = (real) < (intend) })
 
-bool flattenStreamResultWrite(ResultWrite result) { return !(result.error || result.partial); }
-bool flattenStreamResultRead(ResultRead result) { return !(result.error || result.partial); }
-
 void stream_wbufferEnableC(Stream *s, Mem buffer) {
     if(s->wbufferEnabled) return;
 

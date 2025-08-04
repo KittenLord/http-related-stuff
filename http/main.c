@@ -7,17 +7,17 @@ CoilCallback(CoilCB_printCallback, {
     printf("Received content:\n");
     printf("%.*s\n", memPrintf(content));
 
-    pure(result) Coil_StatusLine(context, 204);
-    cont(result) Coil_NoContent(context);
-    return result;
+    checkRet(Coil_StatusLine(context, 204));
+    checkRet(Coil_NoContent(context));
+    return true;
 })
 
 CoilCallback(CoilCB_printSegment, {
     String value = Coil_GetPathMatch(context, "segmentValue");
 
-    pure(result) Coil_StatusLine(context, 200);
-    cont(result) Coil_AddContent(context, value);
-    return result;
+    checkRet(Coil_StatusLine(context, 200));
+    checkRet(Coil_AddContent(context, value));
+    return true;
 })
 
 int main(void) {

@@ -67,9 +67,8 @@ bool writeBytesToHex(Stream *in, Stream *out, bool capital, bool prefix) {
     MaybeChar c;
 
     if(prefix) {
-        pure(r) stream_writeChar(out, '0');
-        cont(r) stream_writeChar(out, 'x');
-        if(!r) return false;
+        checkRet(stream_writeChar(out, '0'));
+        checkRet(stream_writeChar(out, 'x'));
     }
 
     while(isJust(c = stream_popChar(in))) {
@@ -84,9 +83,8 @@ bool writeBytesToHex(Stream *in, Stream *out, bool capital, bool prefix) {
             if(hic >= 'a' && hic <= 'f') hic = hic - 'a' + 'A';
         }
 
-        pure(r) stream_writeChar(out, hic);
-        cont(r) stream_writeChar(out, loc);
-        if(!r) return false;
+        checkRet(stream_writeChar(out, hic));
+        checkRet(stream_writeChar(out, loc));
     }
 
     return true;

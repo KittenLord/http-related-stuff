@@ -24,113 +24,112 @@ String Coil_GetPathMatchL(RouteContext *context, String segment) {
 }
 
 bool Coil_AddDate(RouteContext *context) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Date: ")));
-    cont(result) Http_writeDateNow(context->s);
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    tryRet(stream_write(context->s, mkString("Date: ")));
+    checkRet(Http_writeDateNow(context->s));
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_AddETag(RouteContext *context, Mem data, bool isWeak) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("ETag: ")));
+    tryRet(stream_write(context->s, mkString("ETag: ")));
     if(isWeak) {
-        cont(result) stream_writeChar(context->s, 'W');
-        cont(result) stream_writeChar(context->s, '/');
+        checkRet(stream_writeChar(context->s, 'W'));
+        checkRet(stream_writeChar(context->s, '/'));
     }
 
-    cont(result) stream_writeChar(context->s, '\"');
+    checkRet(stream_writeChar(context->s, '\"'));
     Stream s = mkStreamStr(data);
-    cont(result) writeBytesToBase64(&s, context->s, false, false);
-    cont(result) stream_writeChar(context->s, '\"');
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    checkRet(writeBytesToBase64(&s, context->s, false, false));
+    checkRet(stream_writeChar(context->s, '\"'));
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_AddLastModified(RouteContext *context, time_t lastModified) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Last-Modified: ")));
-    cont(result) Http_writeDate(context->s, lastModified);
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    tryRet(stream_write(context->s, mkString("Last-Modified: ")));
+    checkRet(Http_writeDate(context->s, lastModified));
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_AddHeader(RouteContext *context, String header, String value) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, header));
-    cont(result) stream_writeChar(context->s, ':');
-    cont(result) stream_writeChar(context->s, ' ');
-    cont(result) flattenStreamResultWrite(stream_write(context->s, value));
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    tryRet(stream_write(context->s, header));
+    checkRet(stream_writeChar(context->s, ':'));
+    checkRet(stream_writeChar(context->s, ' '));
+    tryRet(stream_write(context->s, value));
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_SealHeaders(RouteContext *context) {
     if(!context->sealedStatus) return false;
     if(context->sealedHeaders) return false;
 
-    pure(result) Http_writeCRLF(context->s);
-    if(!result) return false;
+    checkRet(Http_writeCRLF(context->s));
 
     context->sealedHeaders = true;
     return true;
 }
 
 bool Coil_AddContentLength(RouteContext *context, u64 length) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Length: ")));
-    cont(result) writeU64ToDecimal(context->s, length);
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    tryRet(stream_write(context->s, mkString("Content-Length: ")));
+    checkRet(writeU64ToDecimal(context->s, length));
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_AddAllNecessaryHeaders(RouteContext *context) {
-    pure(result) Coil_AddDate(context);
-    cont(result) Coil_AddHeader(context, mkString("Connection"), mkString("keep-alive"));
-    return result;
+    checkRet(Coil_AddDate(context));
+    checkRet(Coil_AddHeader(context, mkString("Connection"), mkString("keep-alive")));
+    return true;
 }
 
 bool Coil_AddContent(RouteContext *context, Mem content) {
-    pure(result) Coil_AddContentLength(context, content.len);
-    cont(result) Coil_SealHeaders(context);
+    checkRet(Coil_AddContentLength(context, content.len));
+    checkRet(Coil_SealHeaders(context));
     if(context->method != HEAD) {
-        cont(result) flattenStreamResultWrite(stream_write(context->s, content));
+        tryRet(stream_write(context->s, content));
     }
-    return result;
+    return true;
 }
 
 bool Coil_NoContent(RouteContext *context) {
-    pure(result) Coil_SealHeaders(context);
-    return result;
+    checkRet(Coil_SealHeaders(context));
+    return true;
 }
 
 bool Coil_AddContentType(RouteContext *context, HttpMediaType mediaType) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Content-Type: ")));
-    cont(result) Http_writeMediaType(context->s, mediaType);
+    tryRet(stream_write(context->s, mkString("Content-Type: ")));
+    checkRet(Http_writeMediaType(context->s, mediaType));
 
     // TODO: make this less bad
-    cont(result) flattenStreamResultWrite(stream_write(context->s, mkString(";charset=utf-8")));
+    tryRet(stream_write(context->s, mkString(";charset=utf-8")));
 
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 bool Coil_AddFile(RouteContext *context, File file) {
-    pure(result) Coil_AddContentType(context, file.mediaType);
+    checkRet(Coil_AddContentType(context, file.mediaType));
     if(file.hasHash) {
-        cont(result) Coil_AddETag(context, mkMem(file.hash.data, 256 / 8), false);
+        checkRet(Coil_AddETag(context, mkMem(file.hash.data, 256 / 8), false));
     }
-    cont(result) Coil_AddLastModified(context, file.modTime);
-    cont(result) Coil_AddContent(context, file.data);
-    return result;
+    checkRet(Coil_AddLastModified(context, file.modTime));
+    checkRet(Coil_AddContent(context, file.data));
+    return true;
 }
 
 bool Coil_AddTransferEncoding(RouteContext *context, Dynar(HttpTransferCoding) *codings) {
-    pure(result) flattenStreamResultWrite(stream_write(context->s, mkString("Transfer-Encoding: ")));
+    tryRet(stream_write(context->s, mkString("Transfer-Encoding: ")));
     dynar_foreach(HttpTransferCoding, codings) {
         if(loop.index != 0) {
-            cont(result) stream_writeChar(context->s, ',');
-            cont(result) stream_writeChar(context->s, ' ');
+            checkRet(stream_writeChar(context->s, ','));
+            checkRet(stream_writeChar(context->s, ' '));
         }
-        cont(result) flattenStreamResultWrite(stream_write(context->s, loop.it.coding));
+        tryRet(stream_write(context->s, loop.it.coding));
     }
-    cont(result) Http_writeCRLF(context->s);
-    return result;
+    checkRet(Http_writeCRLF(context->s));
+    return true;
 }
 
 // NOTE: this would've been much cooler if we had lazy streams
@@ -141,12 +140,12 @@ bool Coil_AddTransferEncoding(RouteContext *context, Dynar(HttpTransferCoding) *
 // so I won't be able to test this lol
 bool Coil_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferCoding) *codings) {
     if(context->clientVersion.value < Http_getVersion(1, 1)) {
-        pure(result) Coil_SealHeaders(context);
+        checkRet(Coil_SealHeaders(context));
         if(context->method != HEAD) {
-            cont(result) stream_dumpInto(s, context->s, 0, true);
+            checkRet(stream_dumpInto(s, context->s, 0, true));
             context->persist = false;
         }
-        return result;
+        return true;
     }
 
     Stream _s;
@@ -166,12 +165,16 @@ bool Coil_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferC
         }
     }
 
-    pure(result) true;
+    bool result;
     dynar_append(codings, HttpTransferCoding, mkHttpTransferCoding("chunked"), result);
-    cont(result) Coil_AddTransferEncoding(context, codings);
-    cont(result) Coil_SealHeaders(context);
+    if(!result) return false;
 
-    if(context->method == HEAD) return result;
+    checkRet(Coil_AddTransferEncoding(context, codings));
+    checkRet(Coil_SealHeaders(context));
+
+    if(context->method == HEAD) return true;
+
+
 
     dynar_foreach(HttpTransferCoding, codings) {
         if(mem_eq(loop.it.coding, mkString("chunked"))) {
@@ -185,21 +188,21 @@ bool Coil_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferC
 
                 u64 elen = Sha_endian64(len);
                 Stream elens = mkStreamStr(mkMem(&elen, 8));
-                cont(result) writeBytesToHex(&elens, context->s, false, false);
+                checkRet(writeBytesToHex(&elens, context->s, false, false));
                 // here we would've put chunk extensions if we were sadists
-                cont(result) Http_writeCRLF(context->s);
-                cont(result) flattenStreamResultWrite(stream_write(context->s, mkMem(buffer, len)));
-                cont(result) Http_writeCRLF(context->s);
+                checkRet(Http_writeCRLF(context->s));
+                tryRet(stream_write(context->s, mkMem(buffer, len)));
+                checkRet(Http_writeCRLF(context->s));
 
                 if(r.partial) break;
             }
 
-            cont(result) stream_writeChar(context->s, '0');
-            cont(result) Http_writeCRLF(context->s);
+            checkRet(stream_writeChar(context->s, '0'));
+            checkRet(Http_writeCRLF(context->s));
 
             // here we would've put trailer fields if we were sadists
 
-            cont(result) Http_writeCRLF(context->s);
+            checkRet(Http_writeCRLF(context->s));
         }
         else if(mem_eq(loop.it.coding, mkString("gzip"))) {
             Mem mem = Gzip_compress(stream_dump(s, ALLOC, 0, true), ALLOC);
@@ -218,7 +221,7 @@ bool Coil_AddContentStream(RouteContext *context, Stream *s, Dynar(HttpTransferC
         }
     }
 
-    return result;
+    return true;
 }
 
 bool Coil_NotFound(RouteContext *context) {
@@ -232,10 +235,10 @@ bool Coil_InternalError(RouteContext *context) {
 }
 
 bool Coil_StatusLine(RouteContext *context, HttpStatusCode statusCode) {
-    pure(result) Http_writeStatusLine(context->s, 1, 1, statusCode, memnull);
-    if  (result) context->sealedStatus = true;
-    cont(result) Coil_AddAllNecessaryHeaders(context);
-    return result;
+    checkRet(Http_writeStatusLine(context->s, 1, 1, statusCode, memnull));
+    context->sealedStatus = true;
+    checkRet(Coil_AddAllNecessaryHeaders(context));
+    return true;
 }
 
 // TODO: the result type needs to convey error vs empty content
@@ -273,25 +276,24 @@ Mem Coil_GetContent(RouteContext *context) {
 
                 while(true) {
                     u64 chunkLength;
-                    pure(result) parseU64FromHex(context->s, &chunkLength, false);
+                    checkRetVal(parseU64FromHex(context->s, &chunkLength, false), memnull);
                     HttpChunkExtensions ext = Http_parseChunkExtensions(context->s, ALLOC);
                     if(isNone(ext)) return memnull;
-                    cont(result) Http_parseCRLF(context->s);
-                    if(!result) return memnull;
+                    checkRetVal(Http_parseCRLF(context->s), memnull);
 
                     if(chunkLength > CONTENT_LIMIT) return memnull;
                     if(sb.len + chunkLength > CONTENT_LIMIT) return memnull;
 
                     if(chunkLength == 0) { break; } // final chunk
-                    cont(result) stream_dumpInto(context->s, &s, chunkLength, false);
-                    cont(result) Http_parseCRLF(context->s);
-                    if(!result) return memnull;
+                    checkRetVal(stream_dumpInto(context->s, &s, chunkLength, false), memnull);
+                    checkRetVal(Http_parseCRLF(context->s), memnull);
                 }
 
                 MaybeChar c = stream_peekChar(context->s);
-                pure(result) isJust(c);
+                if(isNone(c)) return memnull;
+
                 if(isJust(c) && c.value == HTTP_CR) {
-                    cont(result) Http_parseCRLF(context->s);
+                    checkRetVal(Http_parseCRLF(context->s), memnull);
                 }
                 else {
                     // i fucking hate trailer fields
@@ -312,7 +314,6 @@ Mem Coil_GetContent(RouteContext *context) {
                     }
                 }
 
-                if(!result) return memnull;
                 mem = sb_build(sb);
             }
             // NOTE: I wanted to test this via curl, but for some reason "Transfer-Encoding: gzip, chunked" couldn't be properly sent
@@ -560,25 +561,22 @@ void *threadRoutine(void *_connection) {
 
                 context.statusCode = 405;
                 context.allowedMethodMask = route.methodMask;
-                pure(result) Handle(&context, connection.router->handler_badRequest);
-                cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
-                if(!result) { goto cleanup; }
+                checkDo(Handle(&context, connection.router->handler_badRequest), goto cleanup);
+                tryDo(stream_writeFlush(&s), goto cleanup);
                 continue;
             }
             else {
                 Log_format2(LOG_ERROR, "<%d> Couldn't find an appropriate route", connection.id);
 
                 context.statusCode = 404;
-                pure(result) Handle(&context, connection.router->handler_routeNotFound);
-                cont(result) flattenStreamResultWrite(stream_writeFlush(&s));
-                if(!result) { goto cleanup; }
+                checkDo(Handle(&context, connection.router->handler_routeNotFound), goto cleanup);
+                tryDo(stream_writeFlush(&s), goto cleanup);
                 continue;
             }
         }
 
         Log_format2(LOG_INFO, "<%d> Trying to handle the route", connection.id);
-        bool result = Handle(&context, route.handler);
-        if(!result) {
+        if(!Handle(&context, route.handler)) {
             Log_format1(LOG_ERROR, "<%d> Couldn't handle the route", connection.id);
 
             context.statusCode = 500;
@@ -589,8 +587,7 @@ void *threadRoutine(void *_connection) {
 
         if(!context.persist) connectionPersists = false;
 
-        result = flattenStreamResultWrite(stream_writeFlush(&s));
-        if(!result) {
+        if(isNone(stream_writeFlush(&s))) {
             Log_format1(LOG_ERROR, "<%d> Couldn't flush the buffer", connection.id);
             goto cleanup;
         }
@@ -623,13 +620,13 @@ CoilCallbackArg(CoilCB_fileTree, FileTreeRouter, fileTree, {
         return Coil_NotFound(context);
     }
 
-    pure(result) Coil_StatusLine(context, 200);
-    cont(result) Coil_AddFile(context, file);
+    checkRet(Coil_StatusLine(context, 200));
+    checkRet(Coil_AddFile(context, file));
     // Stream fileStream = mkStreamStr(file.data);
     // Dynar(HttpTransferCoding) codings = mkDynar(HttpTransferCoding);
     // cont(result) Coil_AddContentStream(context, &fileStream, &codings);
 
-    return result;
+    return true;
 })
 
 CoilCallbackStr(CoilCB_file, filePath, {
@@ -638,21 +635,21 @@ CoilCallbackStr(CoilCB_file, filePath, {
         return Coil_NotFound(context);
     }
 
-    pure(result) Coil_StatusLine(context, 200);
-    cont(result) Coil_AddFile(context, file);
+    checkRet(Coil_StatusLine(context, 200));
+    checkRet(Coil_AddFile(context, file));
 
-    return result;
+    return true;
 })
 
 CoilCallbackStr(CoilCB_data, data, {
-    pure(result) Coil_StatusLine(context, 200);
-    cont(result) Coil_AddContent(context, data);
-    return result;
+    checkRet(Coil_StatusLine(context, 200));
+    checkRet(Coil_AddContent(context, data));
+    return true;
 })
 
 CoilCallback(CoilCB_error, {
     HttpStatusCode statusCode = context->statusCode;
-    pure(result) Coil_StatusLine(context, statusCode);
+    checkRet(Coil_StatusLine(context, statusCode));
     String content = mkString("<body><h1>Something very bad has happened</h1></body>");
 
     switch(statusCode) {
@@ -664,23 +661,23 @@ CoilCallback(CoilCB_error, {
             content = mkString("<html><body><h1>404 Not Found</h1><h2>Sorry we don't have this here</h2></body></html>");
             break;
         case 405:
-            cont(result) flattenStreamResultWrite(stream_write(context->s, mkString("Allow: ")));
+            tryRet(stream_write(context->s, mkString("Allow: ")));
             bool written = false;
             for(int i = 0; context->allowedMethodMask; i++) {
                 if(i != 0 && context->allowedMethodMask & 1) {
                     MaybeString s = Http_getMethod(i);
                     if(isJust(s)) {
                         if(written) {
-                            cont(result) stream_writeChar(context->s, ',');
-                            cont(result) stream_writeChar(context->s, ' ');
+                            checkRet(stream_writeChar(context->s, ','));
+                            checkRet(stream_writeChar(context->s, ' '));
                         }
-                        cont(result) flattenStreamResultWrite(stream_write(context->s, s.value));
+                        tryRet(stream_write(context->s, s.value));
                         written = true;
                     }
                 }
                 context->allowedMethodMask >>= 1;
             }
-            cont(result) Http_writeCRLF(context->s);
+            checkRet(Http_writeCRLF(context->s));
             content = mkString("<html><body><h1>405 Method Not Allowed</h1><h2>that is a very nuh uh method for this so called resource</h2></body></html>");
             break;
         case 414:
@@ -694,8 +691,8 @@ CoilCallback(CoilCB_error, {
             break;
     }
 
-    cont(result) Coil_AddContent(context, content);
-    return result;
+    checkRet(Coil_AddContent(context, content));
+    return true;
 })
 
 typedef struct {

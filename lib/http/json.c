@@ -480,14 +480,12 @@ bool JSON_serializeString(String string, Stream *s) {
     while(isJust(mr = stream_popRune(&str))) {
         rune r = mr.value;
         // TODO: add all escape characters from the spec
-        if     (r == '\n') { result = result && stream_writeRune(s, '\\'); result = result && stream_writeRune(s, 'n'); }
-        else if(r == '\"') { result = result && stream_writeRune(s, '\\'); result = result && stream_writeRune(s, '\"'); }
-        else { result = result && stream_writeRune(s, r); }
-
-        if(!result) return false;
+        if     (r == '\n') { checkRet(stream_writeRune(s, '\\')); checkRet(stream_writeRune(s, 'n')); }
+        else if(r == '\"') { checkRet(stream_writeRune(s, '\\')); checkRet(stream_writeRune(s, '\"')); }
+        else { checkRet(stream_writeRune(s, r)); }
     }
 
-    result = result && stream_writeRune(s, '\"');
+    checkRet(stream_writeRune(s, '\"'));
 
     return true;
 }
@@ -497,33 +495,34 @@ bool JSON_serializeArray(JsonValue value, Stream *s, bool doIndent, usz indent) 
 
     JsonArray array = value.array;
 
-    pure(result) stream_writeRune(s, '[');
+    checkRet(stream_writeRune(s, '['));
 
-    if(array.items.len == 0) { result = result && stream_writeRune(s, ']'); return result; }
+    if(array.items.len == 0) {
+        checkRet(stream_writeRune(s, ']'));
+        return true;
+    }
 
-    if(doIndent) cont(result) stream_writeRune(s, '\n');
-    if(!result) return false;
+    if(doIndent) checkRet(stream_writeRune(s, '\n'));
 
     dynar_foreach(JsonValue, &array.items) {
         for(usz i = 0; doIndent && i < indent + 4; i++) {
-            cont(result) stream_writeRune(s, ' ');
+            checkRet(stream_writeRune(s, ' '));
         }
-        cont(result) JSON_serializeValue(loop.it, s, doIndent, indent + 4);
+        checkRet(JSON_serializeValue(loop.it, s, doIndent, indent + 4));
         if(loop.index != array.items.len - 1) {
-            cont(result) stream_writeRune(s, ',');
+            checkRet(stream_writeRune(s, ','));
         }
         if(doIndent) {
-            cont(result) stream_writeRune(s, '\n');
+            checkRet(stream_writeRune(s, '\n'));
         }
-        if(!result) return false;
     }
 
     for(usz i = 0; doIndent && i < indent; i++) {
-        cont(result) stream_writeRune(s, ' ');
+        checkRet(stream_writeRune(s, ' '));
     }
 
-    cont(result) stream_writeRune(s, ']');
-    return result;
+    checkRet(stream_writeRune(s, ']'));
+    return true;
 }
 
 bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent) {
@@ -531,70 +530,71 @@ bool JSON_serializeObject(JsonValue value, Stream *s, bool doIndent, usz indent)
 
     JsonObject object = value.object;
 
-    pure(result) stream_writeRune(s, '{');
+    checkRet(stream_writeRune(s, '{'));
 
-    if(object.items.len == 0) { result = result && stream_writeRune(s, '}'); return result; }
+    if(object.items.len == 0) {
+        checkRet(stream_writeRune(s, '}'));
+        return true;
+    }
 
-    if(doIndent) cont(result) stream_writeRune(s, '\n');
-    if(!result) return false;
+    if(doIndent) checkRet(stream_writeRune(s, '\n'));
 
     dynar_foreach(JsonKeyValue, &object.items) {
         for(usz i = 0; doIndent && i < indent + 4; i++) {
-            cont(result) stream_writeRune(s, ' ');
+            checkRet(stream_writeRune(s, ' '));
         }
 
-        cont(result) JSON_serializeString(loop.it.key, s);
+        checkRet(JSON_serializeString(loop.it.key, s));
 
-        if(doIndent) cont(result) stream_writeRune(s, ' ');
-        cont(result) stream_writeRune(s, ':');
-        if(doIndent) cont(result) stream_writeRune(s, ' ');
+        if(doIndent) checkRet(stream_writeRune(s, ' '));
+        checkRet(stream_writeRune(s, ':'));
+        if(doIndent) checkRet(stream_writeRune(s, ' '));
 
-        cont(result) JSON_serializeValue(loop.it.value, s, doIndent, indent + 4);
+        checkRet(JSON_serializeValue(loop.it.value, s, doIndent, indent + 4));
 
-        if(loop.index != object.items.len - 1) cont(result) stream_writeRune(s, ',');
+        if(loop.index != object.items.len - 1) checkRet(stream_writeRune(s, ','));
 
-        if(doIndent) cont(result) stream_writeRune(s, '\n');
-        if(!result) return false;
+        if(doIndent) checkRet(stream_writeRune(s, '\n'));
+        return true;
     }
 
     for(usz i = 0; doIndent && i < indent; i++) {
-        cont(result) stream_writeRune(s, ' ');
+        checkRet(stream_writeRune(s, ' '));
     }
 
-    cont(result) stream_writeRune(s, '}');
-    return result;
+    checkRet(stream_writeRune(s, '}'));
+    return true;
 }
 
 bool JSON_serializeNull(JsonValue value, Stream *s) {
     if(value.type != JSON_NULL) return false;
 
-    pure(result) stream_writeRune(s, 'n');
-    cont(result) stream_writeRune(s, 'u');
-    cont(result) stream_writeRune(s, 'l');
-    cont(result) stream_writeRune(s, 'l');
+    checkRet(stream_writeRune(s, 'n'));
+    checkRet(stream_writeRune(s, 'u'));
+    checkRet(stream_writeRune(s, 'l'));
+    checkRet(stream_writeRune(s, 'l'));
 
-    return result;
+    return true;
 }
 
 bool JSON_serializeBool(JsonValue value, Stream *s) {
     if(value.type != JSON_BOOL) return false;
-    pure(result) true;
 
     if(value.boolean) {
-        cont(result) stream_writeRune(s, 't');
-        cont(result) stream_writeRune(s, 'r');
-        cont(result) stream_writeRune(s, 'u');
-        cont(result) stream_writeRune(s, 'e');
+        checkRet(stream_writeRune(s, 't'));
+        checkRet(stream_writeRune(s, 'r'));
+        checkRet(stream_writeRune(s, 'u'));
+        checkRet(stream_writeRune(s, 'e'));
     }
     else {
-        cont(result) stream_writeRune(s, 'f');
-        cont(result) stream_writeRune(s, 'a');
-        cont(result) stream_writeRune(s, 'l');
-        cont(result) stream_writeRune(s, 's');
-        cont(result) stream_writeRune(s, 'e');
+        checkRet(stream_writeRune(s, 'f'));
+        checkRet(stream_writeRune(s, 'a'));
+        checkRet(stream_writeRune(s, 'l'));
+        checkRet(stream_writeRune(s, 's'));
+        checkRet(stream_writeRune(s, 'e'));
     }
 
-    return result;
+    return true;
 }
 
 bool JSON_serializeNumber(JsonValue value, Stream *s) {
@@ -613,12 +613,12 @@ bool JSON_serializeNumber(JsonValue value, Stream *s) {
     }
 
     String str = sb_build(sb);
-    if(sign) result = result && stream_writeRune(s, '-');
+    if(sign) checkRet(stream_writeRune(s, '-'));
     for(int i = str.len - 1; i >= 0; i--) {
-        result = result && stream_writeRune(s, str.s[i]);
+        checkRet(stream_writeRune(s, str.s[i]));
     }
 
-    return result;
+    return true;
 }
 
 bool JSON_serializeValue(JsonValue value, Stream *s, bool doIndent, usz indent) {
